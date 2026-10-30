@@ -63,6 +63,7 @@ class DeliveryTests(unittest.TestCase):
         self.make_sdk()
         (self.project / "crates/sqlx-mysql/src").mkdir(parents=True)
         (self.project / "crates/sqlx-mysql/src/lib.rs").write_bytes(b"driver")
+        (self.project / "patches").mkdir(parents=True)
         for name in [
             "README.md",
             "README.en.md",
