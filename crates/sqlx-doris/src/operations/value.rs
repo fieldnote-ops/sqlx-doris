@@ -1,4 +1,4 @@
-use crate::sqlx::{self, MySql, QueryBuilder};
+use crate::sqlx::{MySql, QueryBuilder};
 use serde::Serialize;
 
 use super::DataType;
