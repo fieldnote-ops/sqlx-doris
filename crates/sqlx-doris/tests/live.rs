@@ -6,14 +6,14 @@ use serde::{Deserialize, Serialize};
 use sqlx_doris::{
     Backend, GroupCommit, PoolBuilder,
     operations::{self, Column, DataType as T, TableDefinition, TableModel},
-    sqlx::{self, Executor, FromRow, Row},
+    sqlx::{self, Executor, Row},
     types::{
         Array, BigDecimal, Binary, Hex, Ipv4, Ipv6, LargeInt, Map, Struct, TimestampTz, Variant,
     },
 };
 use std::{str::FromStr, time::Duration};
 
-#[derive(Debug, FromRow, PartialEq)]
+#[derive(Debug, ::sqlx::FromRow, PartialEq)]
 struct SharedRow {
     id: i64,
     name: String,
@@ -100,7 +100,7 @@ struct Record {
     name: String,
     points: Vec<Option<i32>>,
 }
-#[derive(Debug, FromRow, PartialEq)]
+#[derive(Debug, ::sqlx::FromRow, PartialEq)]
 struct NativeRow {
     id: i64,
     large: Option<LargeInt>,

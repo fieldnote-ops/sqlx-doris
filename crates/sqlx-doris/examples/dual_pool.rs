@@ -1,10 +1,10 @@
 //! Run the same query function and FromRow DTO on both backends.
 use sqlx_doris::{
     Backend, MySqlPool, PoolBuilder,
-    sqlx::{self, FromRow},
+    sqlx::{self},
 };
 
-#[derive(Debug, FromRow, PartialEq)]
+#[derive(Debug, ::sqlx::FromRow, PartialEq)]
 struct User {
     id: i64,
     name: String,

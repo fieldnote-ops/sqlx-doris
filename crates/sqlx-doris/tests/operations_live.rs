@@ -6,7 +6,7 @@ use sqlx_doris::{
         Aggregate as A, AggregateArgument, Column, DataType as T, TableDefinition, TableModel,
         TableName,
     },
-    sqlx::{self, Executor, FromRow, Row, ValueRef},
+    sqlx::{self, Executor, Row, ValueRef},
 };
 use std::{env, time::Duration};
 
@@ -24,7 +24,7 @@ async fn count(db: &sqlx_doris::Client, table: &TableName) -> i64 {
         .unwrap()
 }
 
-#[derive(Debug, FromRow, PartialEq)]
+#[derive(Debug, ::sqlx::FromRow, PartialEq)]
 struct AggregateRow {
     id: i64,
     total: Option<i64>,

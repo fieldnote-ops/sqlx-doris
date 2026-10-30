@@ -41,7 +41,7 @@ async fn client(b: Backend) -> Client {
         .unwrap()
 }
 
-#[derive(Clone, Debug, PartialEq, sqlx::FromRow)]
+#[derive(Clone, Debug, PartialEq, ::sqlx::FromRow)]
 struct Event {
     id: i64,
     tenant: i64,
@@ -270,7 +270,7 @@ async fn querybuilder_keyset_comma_and_nested_pages_keep_order_and_bindings() {
     }
 }
 
-#[derive(Debug, PartialEq, sqlx::FromRow)]
+#[derive(Debug, PartialEq, ::sqlx::FromRow)]
 struct Report {
     priority: Option<i64>,
     row_count: i64,

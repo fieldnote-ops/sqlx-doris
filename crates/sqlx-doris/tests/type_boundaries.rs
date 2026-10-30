@@ -3,12 +3,12 @@ use chrono::{NaiveDate, NaiveDateTime};
 use sqlx_doris::{
     Backend, PoolBuilder,
     operations::{Column, DataType as T, TableDefinition, TableModel},
-    sqlx::{self, Executor, FromRow},
+    sqlx::{self, Executor},
     types::{Array, BigDecimal, Ipv6, LargeInt, Map, TimestampTz, Variant},
 };
 use std::{str::FromStr, time::Duration};
 
-#[derive(Clone, Debug, FromRow, PartialEq)]
+#[derive(Clone, Debug, ::sqlx::FromRow, PartialEq)]
 struct Scalars {
     id: i64,
     b: Option<bool>,

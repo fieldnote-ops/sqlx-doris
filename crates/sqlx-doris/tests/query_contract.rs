@@ -5,7 +5,7 @@ use sqlx_doris::{
     Backend, Client, PoolBuilder,
     operations::{Column, DataType as T, TableDefinition, TableModel, TableName},
     sqlx::{
-        self, Connection, Executor, FromRow, MySql, QueryBuilder, Row, mysql::MySqlConnectOptions,
+        self, Connection, Executor, MySql, QueryBuilder, Row, mysql::MySqlConnectOptions,
     },
 };
 use std::{env, str::FromStr, time::Duration};
@@ -142,7 +142,7 @@ async fn create(db: &Client, table: &TableName) {
     }
 }
 
-#[derive(Debug, FromRow, PartialEq)]
+#[derive(Debug, ::sqlx::FromRow, PartialEq)]
 struct Record {
     id: i64,
     group_id: Option<i64>,
@@ -160,7 +160,7 @@ async fn insert(db: &Client, table: &TableName, rows: &[Record]) {
     query.build().execute(db.pool()).await.unwrap();
 }
 
-#[derive(Debug, FromRow, PartialEq)]
+#[derive(Debug, ::sqlx::FromRow, PartialEq)]
 struct Summary {
     group_id: i64,
     label: String,

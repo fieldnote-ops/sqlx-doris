@@ -39,6 +39,11 @@ pub use sqlx_mysql::{
     self as mysql, MySql, MySqlConnection, MySqlExecutor, MySqlPool, MySqlTransaction,
 };
 
+/// SQLx query module (`sqlx::query`).
+pub mod query {
+    pub use sqlx_core::query::*;
+}
+
 /// SQLx error module (`sqlx::error`).
 pub mod error {
     pub use sqlx_core::error::*;

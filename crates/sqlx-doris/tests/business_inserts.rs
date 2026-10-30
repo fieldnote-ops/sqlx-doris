@@ -70,7 +70,7 @@ async fn create(db: &Client, auto: bool) -> TableName {
         .unwrap();
     t
 }
-#[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
+#[derive(Debug, Clone, PartialEq, ::sqlx::FromRow)]
 struct BusinessRow {
     id: i64,
     title: Option<String>,
