@@ -61,8 +61,8 @@ class DeliveryTests(unittest.TestCase):
         )
         self.archive = self.root / "sdk.crate"
         self.make_sdk()
-        (self.project / "patches/sqlx-mysql/src").mkdir(parents=True)
-        (self.project / "patches/sqlx-mysql/src/lib.rs").write_bytes(b"driver")
+        (self.project / "crates/sqlx-mysql/src").mkdir(parents=True)
+        (self.project / "crates/sqlx-mysql/src/lib.rs").write_bytes(b"driver")
         for name in [
             "README.md",
             "README.en.md",
@@ -73,16 +73,32 @@ class DeliveryTests(unittest.TestCase):
         ]:
             (self.project / "patches" / name).write_bytes(name.encode())
         self.bundle = self.root / "bundle.tar.gz"
-        self.payload = {"sdk/sqlx-doris-0.1.0/" + n: b for n, b in self.files.items()}
+        self.payload = {
+            "crates/sqlx-doris/" + str(p.relative_to(self.sdk)): p.read_bytes()
+            for p in self.sdk.rglob("*")
+            if p.is_file()
+            and (
+                p.suffix in (".rs", ".py")
+                or p.name in ("README.md", "README.en.md", "LICENSE")
+            )
+        }
+        driver = self.project / "crates/sqlx-mysql"
+        for p in driver.rglob("*"):
+            if p.is_file():
+                self.payload["crates/sqlx-mysql/" + str(p.relative_to(driver))] = (
+                    p.read_bytes()
+                )
         for p in (self.project / "patches").rglob("*"):
             if p.is_file():
                 self.payload[
                     "patches/" + str(p.relative_to(self.project / "patches"))
                 ] = p.read_bytes()
         self.payload["README.md"] = (
-            "应用或 Cargo workspace 的根 Cargo.toml 配置 [patch.crates-io] sqlx-mysql"
+            "查询使用 sqlx_doris::sqlx，驱动由 SDK 的 path 依赖带入。"
         ).encode()
-        self.payload["README.en.md"] = b"workspace-root [patch.crates-io] sqlx-mysql"
+        self.payload["README.en.md"] = (
+            b"Use sqlx_doris::sqlx; the SDK path dependency carries the driver."
+        )
 
     def make_sdk(self):
         write_tar(self.archive, "sqlx-doris-0.1.0/", self.files)
@@ -98,7 +114,7 @@ class DeliveryTests(unittest.TestCase):
         _, result = delivery.verify_sdk(self.project, self.archive, "0.1.0")
         self.assertEqual(result["current_source_test_readme_license_files"], 5)
         self.make_bundle()
-        self.assertTrue(
+        self.assertFalse(
             delivery.verify_bundle(self.project, self.bundle, self.files, "0.1.0")[
                 "root_cargo_patch_required"
             ]
@@ -129,8 +145,8 @@ class DeliveryTests(unittest.TestCase):
 
     def test_manifest_rehash_cannot_hide_a_different_sdk_or_companion(self):
         for name in [
-            "sdk/sqlx-doris-0.1.0/src/lib.rs",
-            "patches/sqlx-mysql/src/lib.rs",
+            "crates/sqlx-doris/src/lib.rs",
+            "crates/sqlx-mysql/src/lib.rs",
             "patches/safe-bindings.patch",
         ]:
             original = self.payload[name]

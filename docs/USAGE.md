@@ -13,7 +13,7 @@
 需要 TLS 校验时，可以传入原生连接选项：
 
 ```rust,no_run
-use sqlx::mysql::{MySqlConnectOptions, MySqlSslMode};
+use sqlx_doris::sqlx::mysql::{MySqlConnectOptions, MySqlSslMode};
 use sqlx_doris::{Backend, Client, PoolBuilder};
 use std::{path::Path, str::FromStr};
 
@@ -34,7 +34,7 @@ MySQL 的 TIME 列表兼容默认开启；依赖原生 MySQL 列表类型转换�
 
 ## 查询和参数
 
-继续使用 `sqlx::query`、`query_as`、`query_scalar`、FromRow 和 QueryBuilder。
+继续使用 `sqlx_doris::sqlx` 里的 `query`、`query_as`、`query_scalar`、FromRow 和 QueryBuilder。
 值通过 `.bind()` 传入；动态表名、列名等 SQL 结构由应用提供受信任的模板。
 一个占位符对应一个值，Vec 不会自动展开成 IN 列表。
 
@@ -70,9 +70,9 @@ Doris 的单副本配置适用于单 BE 演示，实际部署按集群副本要�
 建好表后，两库可调用同一个函数：
 
 ```rust,no_run
-pub async fn insert_event(pool: &sqlx::MySqlPool, id: i64, note: &str) -> sqlx::Result<()> {
+pub async fn insert_event(pool: &sqlx_doris::MySqlPool, id: i64, note: &str) -> sqlx_doris::sqlx::Result<()> {
     let mut transaction = pool.begin().await?;
-    sqlx::query("INSERT INTO sdk_demo_events(id, note) VALUES (?, ?)")
+    sqlx_doris::sqlx::query("INSERT INTO sdk_demo_events(id, note) VALUES (?, ?)")
         .bind(id)
         .bind(note)
         .execute(&mut *transaction)
@@ -155,7 +155,9 @@ export DORIS_BE_HTTP_URL='http://doris-be:8040'
 
 ## 编译期宏
 
-开启 sqlx-doris 的 `macros` feature 后可用 `sqlx::query!`、`query_as!`。
+编译期宏 `query!`、`query_as!` 来自上游 SQLx：应用需要自己的 `sqlx` 依赖（`features = ["mysql", "macros"]`），
+并把 `sqlx-mysql` 指向本仓库的 `crates/sqlx-mysql`，宏展开成 `::sqlx::` 路径时才与本包的池类型一致。
+只做普通 query/.bind() 时不涉及这些配置。
 编译时用 DATABASE_URL 指向目标数据库，或设置 SQLX_OFFLINE=true 并提供对应离线缓存。
 两库的缓存分别准备，表结构变更后重新生成；清空 statement cache 不会更新 Rust DTO 或宏缓存。
 

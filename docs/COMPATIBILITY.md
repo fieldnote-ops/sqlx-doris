@@ -6,7 +6,7 @@
 
 | 能力 | 共同使用方式 | 边界 |
 | --- | --- | --- |
-| 类型身份 | 原生 MySql/Pool/Connection/Row/Transaction | 应用根配置随附驱动的 patch，SQLx 版本一致 |
+| 类型身份 | 原生 MySql/Pool/Connection/Row/Transaction | 驱动随 SDK 一起构建，应用无需补丁；SQLx 版本一致 |
 | CRUD/DTO/流 | 原 SQL、`.bind()`、`FromRow`、`QueryBuilder` | 服务端校验 SQL/表模型；流提前 drop 后正确收尾或关闭连接 |
 | VALUES/DEFAULT | 列清单、静态默认值、NULL、多行写 | 不猜 schema、不拆批；动态默认值、空 VALUES、自增序列保持后端语义 |
 | 分页 | LIMIT ?、LIMIT ? OFFSET ?、LIMIT ?,? | 原生整数参数；复杂表达式、显式 prepare/在线 describe 元数据有限 |

@@ -169,13 +169,22 @@ def verify_bundle(project, archive, sdk_files, version):
     for name, digest in manifest.items():
         if hashlib.sha256(files[name]).hexdigest() != digest:
             raise ValueError(f"bundle checksum mismatch: {name}")
-    expected = {f"sdk/sqlx-doris-{version}/{n}": b for n, b in sdk_files.items()}
-    for path in (project / "patches/sqlx-mysql").rglob("*"):
+    expected = {}
+    sdk_root = project / "crates/sqlx-doris"
+    for path in sdk_root.rglob("*"):
+        if path.is_file() and (
+            path.suffix in (".rs", ".py")
+            or path.name in ("README.md", "README.en.md", "LICENSE")
+        ):
+            expected["crates/sqlx-doris/" + str(path.relative_to(sdk_root))] = (
+                path.read_bytes()
+            )
+    driver_root = project / "crates/sqlx-mysql"
+    for path in driver_root.rglob("*"):
         if path.is_file():
-            expected[
-                "patches/sqlx-mysql/"
-                + str(path.relative_to(project / "patches/sqlx-mysql"))
-            ] = path.read_bytes()
+            expected["crates/sqlx-mysql/" + str(path.relative_to(driver_root))] = (
+                path.read_bytes()
+            )
     for name in [
         "README.md",
         "README.en.md",
@@ -187,28 +196,24 @@ def verify_bundle(project, archive, sdk_files, version):
         expected["patches/" + name] = (project / "patches" / name).read_bytes()
     if set(files) != set(expected) | {"README.md", "README.en.md", "SHA256SUMS.json"}:
         raise ValueError(
-            "bundle payload differs from the explicit SDK/SQLx-only delivery set"
+            "bundle payload differs from the explicit SDK/SQLx source delivery set"
         )
     for name, contents in expected.items():
         if files[name] != contents:
-            raise ValueError(f"stale bundle source or mismatched SDK archive: {name}")
+            raise ValueError(f"stale bundle source or mismatched delivery pair: {name}")
     for name in ("README.md", "README.en.md"):
         readme = files[name].decode()
-        if (
-            "[patch.crates-io]" not in readme
-            or "sqlx-mysql" not in readme
-            or not any(
-                scope in readme for scope in ("workspace-root", "workspace 的根")
-            )
-        ):
+        if "sqlx_doris::sqlx" not in readme:
+            raise ValueError(f"bundle README lacks patch-free SDK API guidance: {name}")
+        if "[patch.crates-io]" in readme:
             raise ValueError(
-                f"required application-root companion installation instructions missing: {name}"
+                f"bundle README still requires an application-root patch: {name}"
             )
     return dict(
         files=len(files),
         manifest_entries=len(manifest),
         current_payload_files_matched=len(expected),
         sha256=sha(archive),
-        root_cargo_patch_required=True,
+        root_cargo_patch_required=False,
         server_sources_or_binaries_in_delivery=False,
     )

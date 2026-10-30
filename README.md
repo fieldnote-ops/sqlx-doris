@@ -7,8 +7,8 @@
 表模型、事务、受影响行数和数据可见性仍按各数据库自身的规则处理。
 
 0.1.0 尚未发布到 crates.io，源码在 [GitHub](https://github.com/fieldnote-ops/sqlx-doris)。已测试 SQLx 0.9.0、MySQL 8.4.13 和官方 Doris 4.1.5；要求 Rust 1.94+。
-安装时需要同时使用本库和随附的 sqlx-mysql 驱动补丁，应用根的 Cargo.toml 要配置一次 `[patch.crates-io]`。
-可以直接用 git 依赖从 GitHub 接入，完整步骤见[安装指南](docs/INSTALLATION.md)。
+随附的 sqlx-mysql 驱动已并入仓库，由 SDK 的 path 依赖带入，应用不需要任何根 manifest 的补丁配置。
+接入步骤见[安装指南](docs/INSTALLATION.md)。
 
 ## 先跑一个查询
 

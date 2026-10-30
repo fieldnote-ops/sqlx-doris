@@ -3,7 +3,7 @@
 简体中文 | [English](DEPENDENCIES.en.md)
 
 SDK 使用 Apache-2.0。随附的 sqlx-mysql 保留上游包名、0.9.0 版本号及 Apache-2.0 OR MIT 双许可证，全文随源码和配套包提供。
-应用根的 `[patch.crates-io]` 让应用、宏和 SDK 使用同一个 MySql 类型；安装方式见[安装指南](INSTALLATION.md)。
+它以源码形式位于 `crates/sqlx-mysql`，由 SDK 的 path 依赖带入，应用不需要补丁配置；安装方式见[安装指南](INSTALLATION.md)。
 
 ## 驱动来源
 
@@ -18,11 +18,11 @@ patches/sqlx-mysql-provenance.json 记录来源、文件哈希和许可证，三
 
 ## 发布到 crates.io 的状态
 
-0.1.0 只通过 GitHub 分发。`sqlx-doris` 目前不能单独发布：它调用补丁驱动新增的 `MySqlConnectOptions` 方法，
-而 `[patch.crates-io]` 只能写在应用或 workspace 根，crates.io 上的 crate 带不上。
-因此 `cargo publish --dry-run` 的校验构建会因缺少 `doris_transaction_compatibility` 失败；
-要发布，需先把驱动改动合入上游 SQLx，或由应用根自行 patch（此时 docs.rs 构建也会失败）。
-当前接入方式用 git 依赖，见[安装指南](INSTALLATION.md)。
+0.1.0 只通过 GitHub 和配套包分发。驱动以 path 依赖随 SDK 构建，而发布时 Cargo 会把 path 依赖改写成 registry 依赖，
+因此 `cargo publish --dry-run` 的校验构建会退回上游 stock 驱动并因缺少 `doris_transaction_compatibility` 失败。
+要发布，需要先把驱动作为独立 crate 发布（`sqlx-mysql` 名称已被上游占用，需改名并让 SDK 用依赖重命名引用），
+再按顺序发布 SDK；这会占用两个包名且版本不可撤回。
+当前接入方式用 path 依赖，见[安装指南](INSTALLATION.md)。
 
 ## 锁定依赖的安全说明
 

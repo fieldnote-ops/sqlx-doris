@@ -2,23 +2,24 @@
 
 简体中文 | [English](README.en.md)
 
-本目录的 sqlx-mysql 基于上游 0.9.0，保留包名、版本号和公共 MySql 类型。
+本仓库 `crates/sqlx-mysql` 基于上游 0.9.0，保留包名、版本号和公共 MySql 类型。
 修改的是客户端驱动，Doris FE/BE 使用官方版本，无需修改或重新编译服务器。
 完整应用接入步骤见 SDK README；源码包还提供 docs/INSTALLATION.md。
 
-## 为什么需要根 patch
+## 集成方式
 
-在应用的 workspace 根 Cargo.toml 配置：
+SDK 用 path 依赖引入 `crates/sqlx-mysql`，应用只声明 SDK 依赖即可，不需要根 manifest 的补丁段：
 
 ```toml
-[patch.crates-io]
-sqlx-mysql = { path = "../sqlx-doris/patches/sqlx-mysql" }
+[dependencies]
+sqlx-doris = { path = "../sqlx-doris/crates/sqlx-doris" }
 ```
 
-path 相对于这个根 Cargo.toml，按实际目录调整。
-这样应用直接依赖的 SQLx、SQLx 宏和 SDK 使用同一份 sqlx-mysql，原生连接池、行和事务类型才能互换。
-库内部的 patch 不会传给应用，遗漏时会因缺少兼容接口而编译失败。
-无需修改全局 Cargo 配置或 registry 中的驱动源码。
+驱动随 SDK 一起构建，查询、参数绑定和连接池从 `sqlx_doris::sqlx` 使用，原生 MySql/Pool/Row 类型只有一份。
+为了 `FromRow` 派生宏另外声明上游 SQLx 时，只开 `default-features = false, features = ["derive"]`，
+不会带入第二份驱动。
+需要编译期宏（`query!`、`query_as!`）时才改用上游 SQLx 的 `mysql`、`macros` 特性，
+并把 `sqlx-mysql` 指向本目录；这条路径需要根 manifest 的补丁段，宏展开的 `::sqlx::` 路径才与本包一致。
 
 ## 修改内容
 
@@ -42,5 +43,5 @@ sqlx-mysql-provenance.json 记录 73 个上游文件、15 个修改文件和许�
 ./scripts/dev ./scripts/check-sqlx-patch
 ```
 
-从源码根按 docs/TESTING.md 运行 check 生成包后，再用 verify-delivery 核对补丁重建、文件清单和 SDK/驱动配对。
+从源码根按 docs/TESTING.md 运行 check 生成配套包后，再用 verify-delivery 核对补丁重建、文件清单和 SDK/驱动配对。
 这份驱动随项目提供，尚未另行发布或合并到上游。

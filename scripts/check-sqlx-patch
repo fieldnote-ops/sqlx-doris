@@ -18,7 +18,7 @@ if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
         ],
     )
 provenance = json.loads((project / "patches/sqlx-mysql-provenance.json").read_text())
-directory = project / "patches/sqlx-mysql"
+directory = project / "crates/sqlx-mysql"
 expected = {
     **provenance["upstream_files"],
     **provenance["modified_files"],

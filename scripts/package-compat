@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bundle the current SDK .crate and its required SQLx companion source."""
+"""Bundle the current SDK and its bundled SQLx driver as a patch-free source tree."""
 import hashlib
 import gzip
 import json
@@ -24,25 +24,17 @@ if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
     )
 subprocess.run([str(project / "scripts/check-sqlx-patch")], check=True)
 packages = Path(os.environ["CARGO_TARGET_DIR"]) / "package"
-sdk = packages / "sqlx-doris-0.1.0.crate"
 archive = packages / "sqlx-doris-compat-0.1.0.tar.gz"
 with tempfile.TemporaryDirectory(prefix="compat-bundle-") as temporary:
     stage = Path(temporary) / "sqlx-doris-compat-0.1.0"
     stage.mkdir()
-    with tarfile.open(sdk) as source:
-        source.extractall(stage / "sdk", filter="data")
-    unpacked = stage / "sdk/sqlx-doris-0.1.0"
-    # Refuse a stale archive instead of shipping a mixed-source bundle.
-    for path in (project / "crates/sqlx-doris").rglob("*"):
-        if path.is_file() and (
-            path.suffix in (".rs", ".py")
-            or path.name in ("README.md", "README.en.md", "LICENSE")
-        ):
-            relative = path.relative_to(project / "crates/sqlx-doris")
-            if path.read_bytes() != (unpacked / relative).read_bytes():
-                raise SystemExit(f"stale SDK package: {relative}; run scripts/check")
+    for name in ("sqlx-doris", "sqlx-mysql"):
+        shutil.copytree(
+            project / "crates" / name,
+            stage / "crates" / name,
+            ignore=shutil.ignore_patterns("target", ".cargo", "*.crate"),
+        )
     (stage / "patches").mkdir()
-    shutil.copytree(project / "patches/sqlx-mysql", stage / "patches/sqlx-mysql")
     for name in [
         "README.md",
         "README.en.md",
@@ -57,16 +49,20 @@ with tempfile.TemporaryDirectory(prefix="compat-bundle-") as temporary:
 
 简体中文 | [English](README.en.md)
 
-本包包含 SDK 和必须配套使用的 sqlx-mysql 0.9.0 驱动。
-按 [SDK 安装指南](sdk/sqlx-doris-0.1.0/README.md)准备应用目录，
-其中提供完整的 Cargo.toml、main.rs、连接配置和运行步骤。
+本包以源码形式提供 SDK 和随附的 sqlx-mysql 0.9.0 驱动，两者都在 `crates/` 下。
+应用只需对 SDK 目录使用 path 依赖，驱动由 SDK 内的 path 依赖解析，**不需要** `[patch.crates-io]`：
 
-应用或 Cargo workspace 的根 Cargo.toml 必须配置 `[patch.crates-io]`，
-让应用、SQLx 宏和 SDK 共用原生 MySql 类型。只引入 SDK .crate 不会启用驱动补丁。
+```toml
+[dependencies]
+sqlx-doris = { path = "crates/sqlx-doris" }
+```
+
+查询、参数绑定和连接池使用 `sqlx_doris::sqlx::{query_as, ...}` 与 `sqlx_doris::MySqlPool`；
+只有在需要 `FromRow` 派生宏时才另加 `sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }`。
+完整步骤见 [SDK 安装指南](crates/sqlx-doris/README.md)。
 
 [驱动说明](patches/README.md)记录兼容处理、来源和许可证。
-完整使用、兼容范围和测试说明见源码包的 docs 目录。
-本版本尚未公开发布。
+完整使用、兼容范围和测试说明见源码包的 docs 目录。本版本尚未公开发布。
 """
     )
     (stage / "README.en.md").write_text(
@@ -74,18 +70,23 @@ with tempfile.TemporaryDirectory(prefix="compat-bundle-") as temporary:
 
 [简体中文](README.md) | English
 
-This bundle contains the SDK and its required sqlx-mysql 0.9.0 companion driver.
-Follow the [SDK installation guide](sdk/sqlx-doris-0.1.0/README.en.md) to create your
-application. It includes a complete Cargo.toml, main.rs, connection settings, and
-run commands.
+This bundle ships the SDK and the bundled sqlx-mysql 0.9.0 driver as source under `crates/`.
+Point your application at the SDK directory; the driver resolves through the SDK's own path
+dependency, so **no** `[patch.crates-io]` entry is needed:
 
-Configure `[patch.crates-io]` in the application's or workspace-root Cargo.toml
-so the application, SQLx macros, and SDK share native MySql types. The SDK .crate
-alone does not activate the driver patch.
+```toml
+[dependencies]
+sqlx-doris = { path = "crates/sqlx-doris" }
+```
 
-The [driver guide](patches/README.en.md) describes compatibility, provenance, and
-licenses. Full usage, compatibility, and testing guides are in the source
-archive's docs directory. This version is not publicly released.
+Use `sqlx_doris::sqlx::{query_as, ...}` and `sqlx_doris::MySqlPool` for queries, binding, and pools.
+Add `sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }` only when you
+want the `FromRow` derive macro.
+See the [SDK installation guide](crates/sqlx-doris/README.en.md) for the full steps.
+
+The [driver guide](patches/README.en.md) describes compatibility, provenance, and licenses.
+Full usage, compatibility, and testing guides are in the source archive's docs directory.
+This version is not publicly released.
 """
     )
     files = {
@@ -114,9 +115,8 @@ archive's docs directory. This version is not publicly released.
 summary = {
     "archive": str(archive),
     "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
-    "sdk_crate_sha256": hashlib.sha256(sdk.read_bytes()).hexdigest(),
     "files": len(files) + 1,
-    "root_cargo_patch_required": True,
+    "root_cargo_patch_required": False,
 }
 (packages / "sqlx-doris-compat-0.1.0.json").write_text(
     json.dumps(summary, indent=2) + "\n"

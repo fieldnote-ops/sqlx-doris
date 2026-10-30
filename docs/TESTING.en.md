@@ -7,7 +7,8 @@ not need to run the entire test suite.
 
 ## 1. Prepare the build environment
 
-You need Rust 1.94+ (including Cargo, Rustfmt, and Clippy), a C toolchain, Python 3.12+, and patch.
+You need Rust 1.94+ (including Cargo, Rustfmt, and Clippy), a C toolchain, Python 3.12+, and patch (only for
+reconstructing the patch chain).
 The scripts run in POSIX environments and find tools through PATH. The minimum Rust version check also needs
 rustup; TLS certificate generation needs OpenSSL with -addext support.
 
@@ -56,7 +57,8 @@ both when using a fresh cache.
 check runs bilingual documentation checks, formatting, Clippy, Python tool tests, ordinary Rust tests, driver
 tests, feature builds, API documentation, and package verification.
 test-consumer extracts complete Cargo.toml and main.rs files from the Chinese and English installation guides,
-compiles them in independent applications, and checks that native MySql types are interchangeable.
+compiles them in independent applications, checks native MySql type interchangeability, and confirms the
+dependency graph contains only the bundled sqlx-mysql.
 Full database tests appear as ignored at this stage. They have not run and do not count as passing.
 
 To check formatting or the minimum Rust version separately:
@@ -170,8 +172,8 @@ configured above.
 
 test-live runs the full database tests serially, then the five examples and online/offline macros.
 test-mysql-regression applies the same 14 tests to upstream SQLx and the companion driver.
-test-consumer --live verifies source/bundle installation in independent applications, calls against both
-databases, macros, and the compile error when the root patch is omitted.
+test-consumer --live verifies source/bundle installation in independent applications and calls against both
+databases.
 Missing connections, certificates, or data files cause failure, not a successful result with skipped tests.
 
 ## Packaging
@@ -213,7 +215,7 @@ semantics.
 | Rust 1.94.0 | Ordinary, documentation, and driver tests plus minimal/all-feature builds passed |
 | fmt/clippy/API docs | Passed, with no Clippy or strict documentation warnings |
 | Examples and macros | Five examples and online/offline macros for both databases passed; the missing-cache error matched expectations |
-| Independent installation | Source and compatibility bundle applications connected to both databases; native types were interchangeable; omitting the patch failed compilation as expected |
+| Independent installation | Source and compatibility bundle applications connected to both databases; native types were interchangeable; the dependency graph held a single sqlx-mysql |
 | Complete programs in the guides | All four combinations (Chinese/English × source/bundle) used the documented Cargo.toml/main.rs, connected to both databases, and printed id=42, name=hello |
 | Bilingual documentation | Language navigation, local links, matching examples, and syntax of 40 shell blocks passed for 9 guide pairs; changed examples, broken links, and missing English files were rejected |
 | Usage guide code | MySQL/Doris table creation and transactions, Doris TLS, and JSON import passed against real databases |

@@ -4,8 +4,8 @@
 
 The SDK uses Apache-2.0. The supplied sqlx-mysql retains its upstream name, version 0.9.0, and Apache-2.0 OR
 MIT dual license. Full license texts are included in the source and compatibility bundle.
-The application's root `[patch.crates-io]` entry makes the application, macros, and SDK share the same MySql
-type. See [installation](INSTALLATION.en.md).
+It lives at `crates/sqlx-mysql` and arrives through the SDK's path dependency, so applications need no patch
+entry. See [installation](INSTALLATION.en.md).
 
 ## Driver provenance
 
@@ -22,13 +22,13 @@ the current driver.
 
 ## Status of crates.io publication
 
-0.1.0 ships through GitHub only. `sqlx-doris` cannot be published on its own yet: it calls
-`MySqlConnectOptions` methods added by the patched driver, and `[patch.crates-io]` can live only in an
-application or workspace root, so a crates.io crate cannot carry it.
-`cargo publish --dry-run` therefore fails its verification build with a missing
-`doris_transaction_compatibility`, and docs.rs builds would fail the same way.
-Publishing needs the driver changes merged upstream into SQLx, or an app-root patch accepted by consumers.
-Install from git dependencies for now; see [installation](INSTALLATION.en.md).
+0.1.0 ships through GitHub and the compatibility bundle only. The driver builds through a path dependency,
+and publishing rewrites path dependencies to registry ones, so `cargo publish --dry-run` falls back to the
+upstream stock driver and fails with a missing `doris_transaction_compatibility`.
+Publishing therefore needs the driver released as its own crate first (the `sqlx-mysql` name is taken
+upstream, so it must be renamed and referenced through a dependency rename), followed by the SDK; that
+occupies two package names and versions cannot be withdrawn.
+The current install path uses path dependencies; see [installation](INSTALLATION.en.md).
 
 ## Security notes for locked dependencies
 

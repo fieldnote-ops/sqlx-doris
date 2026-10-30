@@ -9,10 +9,9 @@ Table models, transactions, affected row counts, and data visibility follow each
 Version 0.1.0 is not published on crates.io; the source lives on
 [GitHub](https://github.com/fieldnote-ops/sqlx-doris). Tested with SQLx 0.9.0, MySQL 8.4.13, and official
 Doris 4.1.5; requires Rust 1.94+.
-Install both the SDK and the supplied sqlx-mysql driver patch, with one `[patch.crates-io]` entry in the
-application's root Cargo.toml.
-You can consume both as git dependencies straight from GitHub; see the
-[installation guide](docs/INSTALLATION.en.md) for the complete setup.
+The bundled sqlx-mysql driver lives in this repository and arrives through the SDK's path dependency, so
+applications need no root-manifest patch entry.
+See the [installation guide](docs/INSTALLATION.en.md) for the complete setup.
 
 ## Run your first query
 

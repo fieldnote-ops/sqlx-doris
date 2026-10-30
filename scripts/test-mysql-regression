@@ -128,7 +128,7 @@ try:
         len(candidate_mysql) != 1
         or candidate_mysql[0]["source"] is not None
         or Path(candidate_mysql[0]["manifest_path"]).resolve()
-        != project / "patches/sqlx-mysql/Cargo.toml"
+        != project / "crates/sqlx-mysql/Cargo.toml"
     ):
         raise ValueError("one reviewed native MySql identity required")
     summary["provenance"] = {
@@ -148,7 +148,7 @@ try:
         "tools/upstream_sqlx.py",
         "patches/sqlx-mysql-provenance.json",
     ]
-    for folder in ["crates/sqlx-doris/src", "patches/sqlx-mysql/src"]:
+    for folder in ["crates/sqlx-doris/src", "crates/sqlx-mysql/src"]:
         paths.extend(
             str(p.relative_to(project)) for p in (project / folder).rglob("*.rs")
         )

@@ -14,7 +14,7 @@ Configure pool size and timeouts with max_connections, acquire_timeout, idle_tim
 For TLS verification, pass native connection options:
 
 ```rust,no_run
-use sqlx::mysql::{MySqlConnectOptions, MySqlSslMode};
+use sqlx_doris::sqlx::mysql::{MySqlConnectOptions, MySqlSslMode};
 use sqlx_doris::{Backend, Client, PoolBuilder};
 use std::{path::Path, str::FromStr};
 
@@ -39,7 +39,7 @@ not move running queries.
 
 ## Queries and parameters
 
-Continue using `sqlx::query`, `query_as`, `query_scalar`, FromRow, and QueryBuilder.
+Continue using `query`, `query_as`, `query_scalar`, FromRow, and QueryBuilder from `sqlx_doris::sqlx`.
 Pass values through `.bind()`. Supply dynamic table names, column names, and other SQL structure through
 trusted application templates.
 Each placeholder binds one value; a Vec is not automatically expanded into an IN list.
@@ -80,9 +80,9 @@ your actual cluster.
 After creating the table, either database can use the same function:
 
 ```rust,no_run
-pub async fn insert_event(pool: &sqlx::MySqlPool, id: i64, note: &str) -> sqlx::Result<()> {
+pub async fn insert_event(pool: &sqlx_doris::MySqlPool, id: i64, note: &str) -> sqlx_doris::sqlx::Result<()> {
     let mut transaction = pool.begin().await?;
-    sqlx::query("INSERT INTO sdk_demo_events(id, note) VALUES (?, ?)")
+    sqlx_doris::sqlx::query("INSERT INTO sdk_demo_events(id, note) VALUES (?, ?)")
         .bind(id)
         .bind(note)
         .execute(&mut *transaction)
@@ -182,7 +182,10 @@ SQL ports for them.
 
 ## Compile-time macros
 
-Enable the sqlx-doris `macros` feature for `sqlx::query!` and `query_as!`.
+Compile-time `query!` and `query_as!` come from upstream SQLx: the application needs its own `sqlx`
+dependency (`features = ["mysql", "macros"]`) and must point `sqlx-mysql` at this repository's
+`crates/sqlx-mysql`, so the `::sqlx::` paths the macros expand to match this crate's pool types.
+Plain query/.bind() calls involve none of this setup.
 At compile time, point DATABASE_URL at the target database, or set SQLX_OFFLINE=true and supply matching
 offline metadata.
 Prepare caches separately for the two databases and regenerate them after schema changes. Clearing the

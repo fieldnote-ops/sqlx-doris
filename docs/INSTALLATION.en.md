@@ -3,27 +3,21 @@
 [简体中文](INSTALLATION.md) | English
 
 Requires Rust 1.94+ and a C toolchain. Applications build with Cargo and do not need Python.
-Version 0.1.0 is not published on crates.io: consume it as git dependencies from GitHub, or use the
-supplied source or compatibility bundle.
-This guide starts from the GitHub git dependencies; where indicated, swap them for local paths when you
-build from source or the compatibility bundle.
+Version 0.1.0 is not published on crates.io; use the compatibility bundle or the GitHub source. The
+bundled driver ships inside this repository, so applications need no root-manifest patch entry.
 
 ## 1. Prepare the source and application directories
 
-If you consume the crate as git dependencies from GitHub, skip this section and run only the final
-`mkdir -p sdk-demo/src`.
-
-If you already have the source, place it next to your application directory and name it sqlx-doris.
-If you have the distribution files, place them in an empty working directory and choose one of these options:
+With the compatibility bundle, extract it into an empty working directory:
 
 ```sh
-git clone sqlx-doris-0.1.0.bundle sqlx-doris
+tar -xzf sqlx-doris-compat-0.1.0.tar.gz
 ```
 
-Or extract the source archive:
+With GitHub, clone the repository instead and use that directory name:
 
 ```sh
-tar -xzf sqlx-doris-source-0.1.0.tar.gz
+git clone https://github.com/fieldnote-ops/sqlx-doris.git sqlx-doris
 ```
 
 Then create the application directory:
@@ -36,9 +30,9 @@ The resulting layout is:
 
 ```text
 work/
-  sqlx-doris/
+  sqlx-doris-compat-0.1.0/
     crates/sqlx-doris/
-    patches/sqlx-mysql/
+    crates/sqlx-mysql/
   sdk-demo/
     Cargo.toml
     src/main.rs
@@ -46,7 +40,7 @@ work/
 
 ## 2. Configure Cargo.toml
 
-Save this as sdk-demo/Cargo.toml (git dependencies from GitHub):
+Save this as sdk-demo/Cargo.toml:
 
 ```toml
 [package]
@@ -55,38 +49,29 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-sqlx-doris = { git = "https://github.com/fieldnote-ops/sqlx-doris" }
-sqlx = { version = "=0.9.0", default-features = false, features = ["mysql", "derive"] }
+sqlx-doris = { path = "../sqlx-doris-compat-0.1.0/crates/sqlx-doris" }
+sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-
-[patch.crates-io]
-sqlx-mysql = { git = "https://github.com/fieldnote-ops/sqlx-doris" }
 ```
 
-Git dependencies track the default branch; add `rev` or `tag` to pin them.
-For a local source checkout, replace both entries with paths:
-
-```toml
-sqlx-doris = { path = "../sqlx-doris/crates/sqlx-doris" }
-sqlx-mysql = { path = "../sqlx-doris/patches/sqlx-mysql" }
-```
-
-In this standalone application, both path entries are relative to sdk-demo/Cargo.toml. Adjust them to your
-layout instead of hardcoding machine-specific absolute paths.
-In a Cargo workspace, a dependency's path is relative to the application crate's Cargo.toml. Put
-`[patch.crates-io]` in the workspace root and resolve its path relative to that root Cargo.toml. Paths in
-`[workspace.dependencies]` are also relative to the workspace root.
-Git dependencies do not depend on the directory layout, but `[patch.crates-io]` still belongs in the
-workspace root.
-Align existing SQLx dependencies to `=0.9.0`. The direct SQLx dependency supports the FromRow derive macro;
-Tokio supplies the async runtime.
+The path is relative to sdk-demo/Cargo.toml; adjust it to your layout instead of hardcoding a
+machine-specific absolute path. The SDK resolves `crates/sqlx-mysql` through its own path dependency,
+so the application needs no patch section; declaring the driver again would introduce a second type.
+In a Cargo workspace, a dependency's path is relative to the manifest that declares it, and
+`[workspace.dependencies]` paths are relative to the workspace root.
+The direct SQLx dependency only supplies the `#[derive(sqlx::FromRow)]` macro; take query functions and
+pool types from `sqlx_doris::sqlx`. Align existing SQLx dependencies to `=0.9.0`; Tokio supplies the
+async runtime.
 
 ## 3. Save the program
 
 Save this as sdk-demo/src/main.rs:
 
 ```rust,no_run
-use sqlx_doris::{Backend, PoolBuilder};
+use sqlx_doris::{
+    Backend, MySqlPool, PoolBuilder,
+    sqlx::query_as,
+};
 
 #[derive(Debug, sqlx::FromRow)]
 struct Greeting {
@@ -94,8 +79,8 @@ struct Greeting {
     name: String,
 }
 
-async fn greeting(pool: &sqlx::MySqlPool) -> sqlx::Result<Greeting> {
-    sqlx::query_as("SELECT CAST(? AS SIGNED) AS id, ? AS name")
+async fn greeting(pool: &MySqlPool) -> sqlx_doris::sqlx::Result<Greeting> {
+    query_as("SELECT CAST(? AS SIGNED) AS id, ? AS name")
         .bind(42_i64)
         .bind("hello")
         .fetch_one(pool)
@@ -119,14 +104,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-The program needs no tables. The same greeting function accepts a native MySqlPool, binds parameters on either
-database, and maps the result to the same struct.
+This program uses no tables. One greeting function takes a native MySqlPool, binds parameters on both
+databases, and maps each result into the same struct.
 
 ## 4. Configure connections and run
 
-Use accounts that can access MySQL and Doris. The database named `app` in each example URL must already
-exist; replace it with a database you can access.
-To create demonstration databases, an administrator can run this on each database server:
+Prepare MySQL and Doris accounts you can log in with. `app` in the example URLs is an existing database;
+substitute one you may use. An administrator can create a demo database on both servers:
 
 ```sql
 CREATE DATABASE IF NOT EXISTS app;
@@ -141,42 +125,43 @@ export DORIS_URL='mysql://user:password@doris-fe:9030/app'
 cargo run
 ```
 
-Replace the placeholder credentials and hosts with real connection settings. Successful output is:
+Replace the placeholder credentials and hosts with real values. A successful run prints:
 
 ```text
 MySql: id=42, name=hello
 Doris: id=42, name=hello
 ```
 
-Doris uses the FE SQL port, usually 9030, and still uses a mysql:// URL.
-`Backend::Doris` enables Doris compatibility options. To switch databases, change the connection settings and
-backend selection; the query function can be reused.
-URL-encode characters such as @, /, #, and % in passwords. Alternatively, set credentials through
-`MySqlConnectOptions`, as shown in the usage guide.
+Doris uses the FE SQL port, usually 9030, and the URL still starts with mysql://.
+`Backend::Doris` enables the Doris compatibility options; switching databases changes the connection
+settings and backend selection while query functions stay reusable.
+Characters such as @, /, #, and % in passwords need URL encoding; use `MySqlConnectOptions` when you
+prefer not to encode them, as described in the usage guide.
 
-## Add to an existing project
+## Joining an existing project
 
-Use `client.pool()` to borrow the native pool, or `client.into_pool()` to take ownership of it.
-`Client::from_pool` only wraps an existing pool; it does not apply Doris initialization or protocol options.
-Use PoolBuilder to create Doris pools.
-Continue using `sqlx::query`, `.bind()`, `FromRow`, and `QueryBuilder` in application code.
+Borrow `client.pool()` or take ownership with `client.into_pool()` to obtain a native MySqlPool.
+`Client::from_pool` only wraps an existing pool without Doris initialization or protocol options;
+create Doris pools through PoolBuilder.
+Keep using `query`, `.bind()`, `FromRow`, and `QueryBuilder` from `sqlx_doris::sqlx`, and do not mix in
+the upstream SQLx pool types.
 
-The HTTP import feature, `stream-load`, is enabled by default. Set `default-features = false` on the
-sqlx-doris dependency for SQL-only use.
-SQLx compile-time macros require `features = ["macros"]`. Ordinary query/.bind() calls do not require
-DATABASE_URL or offline metadata.
+HTTP import (`stream-load`) is enabled by default; set `default-features = false` on the sqlx-doris
+dependency for query-only applications.
+Compile-time macros (`query!`, `query_as!`) come from upstream SQLx and need their own `sqlx`
+dependency (`features = ["mysql", "macros"]`) plus `sqlx-mysql` pointing at this repository's
+`crates/sqlx-mysql`; ordinary query/.bind() calls need neither DATABASE_URL nor offline metadata.
 
-## Troubleshooting
+## Common errors
 
 | Symptom | Check |
 | --- | --- |
-| Local dependency path not found | Check the directory layout and both path entries in the application's root Cargo.toml |
-| Missing doris_transaction_compatibility at compile time | Cargo is not using the supplied patch; check the workspace root and sqlx-mysql path |
-| MySqlPool type mismatch | Use cargo tree -i sqlx-mysql to check for mixed SQLx versions |
-| NotPresent at startup (missing environment variable) | Set the connection variables in the same shell that runs the program |
-| Authentication failure or missing database | Check permissions, password encoding, database name, and the FE SQL port |
-| Compile-time macro requires DATABASE_URL | Provide the target database connection or matching offline metadata; ordinary query does not need it |
+| Local dependency path not found | Compare the layout and the path in sdk-demo/Cargo.toml |
+| MySqlPool type mismatch | Take queries from `sqlx_doris::sqlx`; confirm a single driver with cargo tree -i sqlx-mysql |
+| NotPresent at startup (missing variable) | Set the variable in the same shell that runs the program |
+| Authentication failure or missing database | Check grants, password encoding, database name, and the FE SQL port |
+| Macros demand DATABASE_URL | Compile-time macros need the upstream SQLx macros and a describe source; plain queries do not |
 
-When first adding the patch, let Cargo resolve dependencies and update the application's Cargo.lock. Then use
-`cargo run --locked` to keep that resolution fixed.
-See [usage](USAGE.en.md) for source examples and [testing](TESTING.en.md) for the full test procedure.
+After the first resolution you can pin the application Cargo.lock with `cargo run --locked`.
+See the [usage guide](USAGE.en.md) and [testing notes](TESTING.en.md) for source examples and the full
+test procedure.

@@ -12,7 +12,9 @@
   BLOB/TIME/VALUES/pagination parameter handling.
 - Include regression tests for commit, rollback, cancellation, caches, error recovery, and avoiding replay of
   uncertain writes.
-- Provide installation tests, an upstream SQLx comparison, and a verifiable compatibility bundle; one root
-  patch entry is required in the application.
+- Bundle the driver source at `crates/sqlx-mysql`; the SDK now builds on `sqlx-core` plus that path
+  dependency and exposes `sqlx_doris::sqlx`, so applications need no root-manifest patch entry.
+- Provide installation tests, an upstream SQLx comparison, and a verifiable compatibility bundle; the bundle
+  ships the SDK and driver as source.
 - Publish the repository on GitHub (<https://github.com/fieldnote-ops/sqlx-doris>) with git-dependency
   installation; crates.io publication is deferred, see [dependencies](docs/DEPENDENCIES.en.md) for why.

@@ -33,7 +33,7 @@ commands = [
         "--config",
         "skip_children=true",
         "--check",
-        *["patches/sqlx-mysql/" + name for name in modified],
+        *["crates/sqlx-mysql/" + name for name in modified],
     ],
     [sys.executable, "-B", "scripts/format", "--check"],
     [
@@ -80,7 +80,7 @@ commands = [
         "sqlx-doris",
         "--allow-dirty",
         "--config",
-        'patch.crates-io.sqlx-mysql.path="' + str(project / "patches/sqlx-mysql") + '"',
+        'patch.crates-io.sqlx-mysql.path="' + str(project / "crates/sqlx-mysql") + '"',
     ],
     [sys.executable, "-B", "scripts/package-compat"],
     [sys.executable, "-B", "scripts/verify-delivery"],

@@ -7,7 +7,7 @@ versions and unlisted SQL forms against your target instance.
 
 | Capability | Shared usage | Limits |
 | --- | --- | --- |
-| Type identity | Native MySql/Pool/Connection/Row/Transaction | Configure the supplied driver patch at the application root and use consistent SQLx versions |
+| Type identity | Native MySql/Pool/Connection/Row/Transaction | The driver builds with the SDK, so applications need no patch; use consistent SQLx versions |
 | CRUD/DTO/streaming | Original SQL, `.bind()`, FromRow, QueryBuilder | The server validates SQL and table models; early stream drops complete cleanup or close the connection |
 | VALUES/DEFAULT | Column lists, static defaults, NULL, multi-row writes | No schema guessing or batch splitting; dynamic defaults, empty VALUES, and auto-increment sequences keep backend semantics |
 | Pagination | LIMIT ?, LIMIT ? OFFSET ?, LIMIT ?,? | Native integer parameters; complex expressions and metadata from explicit prepare/online describe have limited support |

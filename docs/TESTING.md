@@ -6,7 +6,7 @@
 
 ## 1. 准备构建环境
 
-需要 Rust 1.94+（含 Cargo、Rustfmt、Clippy）、C 编译工具、Python 3.12+ 和 patch。
+需要 Rust 1.94+（含 Cargo、Rustfmt、Clippy）、C 编译工具、Python 3.12+，以及 patch（仅用于重建补丁链）。
 测试脚本适用于 POSIX 环境，工具从 PATH 查找。最低 Rust 版本检查另需 rustup；TLS 测试证书生成另需支持 -addext 的 OpenSSL。
 
 先选择已挂载的外置构建盘。可以更改卷内工作目录，代码里没有固定盘符：
@@ -48,7 +48,8 @@ export PATH="$SQLX_DORIS_BUILD_ROOT/runtime/dev-python/bin:$PATH"
 ```
 
 check 依次执行双语文档、格式检查、Clippy、Python 工具测试、Rust 普通测试、驱动测试、feature 构建、API 文档和打包校验。
-test-consumer 从中英文安装文档中提取完整 Cargo.toml 和 main.rs，在独立应用中编译，并检查原生 MySql 类型能否互换。
+test-consumer 从中英文安装文档中提取完整 Cargo.toml 和 main.rs，在独立应用中编译，检查原生 MySql 类型能否互换，
+并确认依赖图里只有随包提供的一份 sqlx-mysql。
 完整数据库用例此时显示 ignored，表示尚未执行，不算通过。
 
 单独检查格式或最低 Rust 版本：
@@ -147,7 +148,7 @@ SQL 端口要能从 localhost 和 127.0.0.1 访问，HTTP 地址保持上一节�
 
 test-live 串行执行完整数据库测试，再运行五个示例和在线/离线宏。
 test-mysql-regression 用同一组 14 项测试分别对照原版 SQLx 和配套驱动。
-test-consumer --live 验证独立应用的源码/配套包接入、双库调用、宏和遗漏 patch 时的编译报错。
+test-consumer --live 验证独立应用的源码/配套包接入和双库调用。
 缺少连接、证书或数据文件时命令会失败，不会跳过后报成功。
 
 ## 打包
@@ -184,7 +185,7 @@ compat 包内的 SHA256SUMS.json 覆盖所有文件。安装路径见[安装指�
 | Rust 1.94.0 | 普通/文档/驱动测试与最小/全部 feature 构建通过 |
 | fmt/clippy/API 文档 | 通过，clippy 与严格文档检查无警告 |
 | 示例与宏 | 五个示例、双库在线/离线宏通过；缺缓存时报错符合预期 |
-| 独立安装 | 源码和 compat 包实际连接双库，原生类型可互换；缺 patch 时编译失败符合预期 |
+| 独立安装 | 源码和 compat 包实际连接双库，原生类型可互换；依赖图中只有一份 sqlx-mysql |
 | 文档中的完整程序 | 中英文 × 源码/compat 四种组合均使用文档中的 Cargo.toml/main.rs，连接双库并输出 id=42、name=hello |
 | 中英文文档 | 9 组文档的语言切换、本地链接、示例一致性和 40 段 shell 语法通过；示例偏移、失效链接和缺英文文件时明确失败 |
 | 使用指南代码 | MySQL/Doris 建表与事务、Doris TLS 和 JSON 导入连接真库通过 |

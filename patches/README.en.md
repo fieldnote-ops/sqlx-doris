@@ -1,60 +1,58 @@
-# Supplied SQLx MySQL driver
+# Bundled SQLx MySQL driver
 
 [简体中文](README.md) | English
 
-The sqlx-mysql directory is based on upstream 0.9.0 and retains its package name, version, and public MySql
-types.
-Only the client driver is modified. Doris runs an unmodified official build; no FE/BE changes or rebuilds
-are required.
-See the SDK README for a complete application setup; the source distribution also includes
-docs/INSTALLATION.en.md.
+`crates/sqlx-mysql` is based on upstream 0.9.0 and keeps its package name, version, and public MySql
+types. Only the client driver changes; Doris FE/BE run official builds and need no rebuild.
+See the SDK README for the full application setup; the source archive also ships docs/INSTALLATION.md.
 
-## Why the root patch is required
+## How it is integrated
 
-Configure this in the application's workspace-root Cargo.toml:
+The SDK pulls `crates/sqlx-mysql` through a path dependency, so applications declare only the SDK and
+need no root-manifest patch entry:
 
 ```toml
-[patch.crates-io]
-sqlx-mysql = { path = "../sqlx-doris/patches/sqlx-mysql" }
+[dependencies]
+sqlx-doris = { path = "../sqlx-doris/crates/sqlx-doris" }
 ```
 
-The path is relative to that root Cargo.toml; adjust it to your layout.
-The application, SQLx macros, and SDK then use the same sqlx-mysql, so their native pool, row, and
-transaction types remain identical.
-A library's patch does not propagate to its consumers. Omitting it causes a compile error for the missing
-compatibility API.
-No global Cargo configuration or registry source changes are needed.
+The driver builds with the SDK, and queries, binding, and pools come from `sqlx_doris::sqlx`, so there is
+exactly one set of native MySql/Pool/Row types.
+When you add upstream SQLx for the `FromRow` derive macro, use
+`default-features = false, features = ["derive"]` and it brings no second driver.
+Only compile-time macros (`query!`, `query_as!`) need upstream SQLx with the `mysql` and `macros`
+features plus `sqlx-mysql` pointing at this directory; that path needs a root-manifest patch entry so the
+`::sqlx::` paths the macros expand to match this crate.
 
 ## Changes
 
-- Accept Doris's valid 10-byte PrepareOk response, treating the absent warning field as zero while still
-  rejecting truncated or invalid responses.
-- Handle top-level write transactions, cancellation, and connections that cannot safely be reused through
+- Accept the valid 10-byte Doris PrepareOk, treating a missing warning field as 0 while still rejecting
+  truncated or invalid responses.
+- Handle top-level write transactions, cancellation, and connections that cannot be reused safely through
   explicit Doris connection options.
-- Adapt BLOB, TIME, VALUES, DEFAULT, and pagination parameters within the supported SQL scope; application
-  code keeps `.bind()`.
-- Select compatibility paths before sending packets. Writes are not replayed after failures, and unsupported
-  types or SQL forms return explicit errors.
+- Handle BLOB, TIME, VALUES, DEFAULT, and pagination parameters within the supported SQL subset; business
+  code keeps using `.bind()`.
+- Choose compatibility paths before sending, never replay after a failed write, and report unsupported
+  types or SQL shapes explicitly.
 
-Ordinary MySQL connections retain the native protocol. TIME compatibility for IN/NOT IN predicates is a
-separate option: disabled by default in the driver, enabled by the SDK for MySQL, and can be explicitly
-disabled.
-See the SDK README for scope and database semantics, with the full list in docs/COMPATIBILITY.en.md in the
-source distribution.
+Ordinary MySQL connections keep the native protocol. The TIME list convenience is a separate option: off
+by default in the driver and on in the SDK's MySQL profile, and can be disabled explicitly.
+Database semantics and the supported subset are in the SDK README, with the full list in the source
+archive's docs/COMPATIBILITY.md.
 
 ## Provenance, licenses, and verification
 
-Based on upstream commit 003b698e99e024f3621b8043a2426fde5b741171, with full Apache-2.0 OR MIT license texts
-preserved.
-sqlx-mysql-provenance.json records hashes for 73 upstream files, 15 modified files, and the licenses.
-The three patches reconstruct the source in prepare-ok, native-transactions, safe-bindings order.
+It corresponds to upstream commit 003b698e99e024f3621b8043a2426fde5b741171 and keeps both Apache-2.0 and
+MIT license texts. sqlx-mysql-provenance.json records hashes for 73 upstream files, 15 modified files, and
+the licenses.
+Three patches (prepare-ok, native-transactions, safe-bindings) reconstruct the current source.
 
-After configuring the build volume, check the source independently:
+With a configured build volume you can check the source on its own:
 
 ```sh
 ./scripts/dev ./scripts/check-sqlx-patch
 ```
 
-From the source root, follow docs/TESTING.en.md to run check and generate packages, then use verify-delivery
-to check source reconstruction, file lists, and the SDK/driver pair.
-This driver is supplied with the project; it has not been separately published or merged upstream.
+After building the compatibility bundle with check as described in docs/TESTING.md, verify-delivery checks
+patch reconstruction, the file set, and the SDK/driver pairing.
+The driver ships with this project; it is not published separately or merged upstream.
