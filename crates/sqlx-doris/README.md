@@ -1,5 +1,7 @@
 # sqlx-doris
 
+简体中文 | [English](README.en.md)
+
 MySQL 与 Apache Doris 的 Rust SQLx 统一访问库。业务使用原生 `MySqlPool`、`.bind()` 和结果映射，连接时选择数据库后端。
 Doris 的类型、表模型和事务规则保持原生语义。
 

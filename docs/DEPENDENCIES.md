@@ -1,5 +1,7 @@
 # 依赖、来源与许可证
 
+简体中文 | [English](DEPENDENCIES.en.md)
+
 SDK 使用 Apache-2.0。随附的 sqlx-mysql 保留上游包名、0.9.0 版本号及 Apache-2.0 OR MIT 双许可证，全文随源码和配套包提供。
 应用根的 `[patch.crates-io]` 让应用、宏和 SDK 使用同一个 MySql 类型；安装方式见[安装指南](INSTALLATION.md)。
 

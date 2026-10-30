@@ -84,10 +84,13 @@ for name, expected in json.loads((bundle / "SHA256SUMS.json").read_text()).items
     if hashlib.sha256((bundle / name).read_bytes()).hexdigest() != expected:
         raise SystemExit(f"bundle checksum mismatch: {name}")
 packaged = bundle / "sdk/sqlx-doris-0.1.0"
-if (packaged / "README.md").read_bytes() != (
-    project / "crates/sqlx-doris/README.md"
-).read_bytes():
-    raise SystemExit("packaged README differs from current source; repackage first")
+for name in ("README.md", "README.en.md"):
+    if (packaged / name).read_bytes() != (
+        project / "crates/sqlx-doris" / name
+    ).read_bytes():
+        raise SystemExit(
+            f"packaged {name} differs from current source; repackage first"
+        )
 
 results = []
 cases = [
@@ -211,63 +214,89 @@ pub fn same_transaction<'a>(
             print("unpatched consumer rejected at compile time as expected", flush=True)
             continue
         command(["cargo", "check", "--locked", "--offline", *flags])
-        # Compile the documented application with its documented dependencies.
-        # The broader consumer below separately exercises direct SQLx identity.
-        documented_manifest = re.search(
-            r"```toml\n(.*?)\n```", source.read_text(), re.S
-        )
-        if not documented_manifest:
-            raise SystemExit(f"missing complete Cargo.toml in {source}")
-        manifest_text = documented_manifest[1]
-        parsed_manifest = tomllib.loads(manifest_text)
-        original_sdk = parsed_manifest["dependencies"]["sqlx-doris"]["path"]
-        original_patch = parsed_manifest["patch"]["crates-io"]["sqlx-mysql"]["path"]
-        manifest_text = manifest_text.replace(
-            json.dumps(original_sdk), json.dumps(str(dependency)), 1
-        )
-        manifest_text = manifest_text.replace(
-            json.dumps(original_patch), json.dumps(str(patch)), 1
-        )
-        relocated_manifest = tomllib.loads(manifest_text)
-        if relocated_manifest["dependencies"]["sqlx-doris"]["path"] != str(
-            dependency
-        ) or relocated_manifest["patch"]["crates-io"]["sqlx-mysql"]["path"] != str(
-            patch
-        ):
-            raise SystemExit(
-                f"cannot relocate the documented dependency paths in {source}"
+        # Use each guide's manifest and program without injecting dependencies.
+        documented_applications = []
+        for language in ("zh", "en"):
+            documented_source = (
+                source if language == "zh" else source.with_name(source.stem + ".en.md")
             )
-        documented_directory = run / (label + "-documented-app")
-        (documented_directory / "src").mkdir(parents=True)
-        (documented_directory / "Cargo.toml").write_text(manifest_text + "\n")
-        (documented_directory / "src/main.rs").write_text(rust + "\n")
-        documented_flags = ["--manifest-path", str(documented_directory / "Cargo.toml")]
-        command(["cargo", "generate-lockfile", "--offline", *documented_flags])
-        command(["cargo", "check", "--locked", "--offline", *documented_flags])
-        if args.live:
-            documented_env = os.environ.copy()
-            documented_env.update(
-                MYSQL_URL=documented_env["MYSQL_TEST_URL"],
-                DORIS_URL=documented_env["DORIS_TEST_URL"],
+            documented_rust = re.search(
+                r"```rust,no_run\n(.*?)\n```", documented_source.read_text(), re.S
             )
-            output.write("$ run the documented main.rs against both databases\n")
-            output.flush()
-            documented_run = subprocess.run(
-                ["cargo", "run", "--locked", "--offline", *documented_flags],
-                cwd=project,
-                env=documented_env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
+            if not documented_rust:
+                raise SystemExit(f"missing documented main.rs in {documented_source}")
+            documented_manifest = re.search(
+                r"```toml\n(.*?)\n```", documented_source.read_text(), re.S
             )
-            output.write(documented_run.stdout)
-            output.flush()
-            documented_run.check_returncode()
-            for expected in ("MySql: id=42, name=hello", "Doris: id=42, name=hello"):
-                if expected not in documented_run.stdout.splitlines():
-                    raise SystemExit(
-                        f"documented application output missing: {expected}"
-                    )
+            if not documented_manifest:
+                raise SystemExit(f"missing complete Cargo.toml in {documented_source}")
+            manifest_text = documented_manifest[1]
+            parsed_manifest = tomllib.loads(manifest_text)
+            original_sdk = parsed_manifest["dependencies"]["sqlx-doris"]["path"]
+            original_patch = parsed_manifest["patch"]["crates-io"]["sqlx-mysql"]["path"]
+            manifest_text = manifest_text.replace(
+                json.dumps(original_sdk), json.dumps(str(dependency)), 1
+            )
+            manifest_text = manifest_text.replace(
+                json.dumps(original_patch), json.dumps(str(patch)), 1
+            )
+            relocated_manifest = tomllib.loads(manifest_text)
+            if relocated_manifest["dependencies"]["sqlx-doris"]["path"] != str(
+                dependency
+            ) or relocated_manifest["patch"]["crates-io"]["sqlx-mysql"]["path"] != str(
+                patch
+            ):
+                raise SystemExit(
+                    f"cannot relocate the documented dependency paths in {documented_source}"
+                )
+            documented_directory = run / (label + "-" + language + "-documented-app")
+            (documented_directory / "src").mkdir(parents=True)
+            (documented_directory / "Cargo.toml").write_text(manifest_text + "\n")
+            (documented_directory / "src/main.rs").write_text(documented_rust[1] + "\n")
+            documented_flags = [
+                "--manifest-path",
+                str(documented_directory / "Cargo.toml"),
+            ]
+            command(["cargo", "generate-lockfile", "--offline", *documented_flags])
+            command(["cargo", "check", "--locked", "--offline", *documented_flags])
+            if args.live:
+                documented_env = os.environ.copy()
+                documented_env.update(
+                    MYSQL_URL=documented_env["MYSQL_TEST_URL"],
+                    DORIS_URL=documented_env["DORIS_TEST_URL"],
+                )
+                output.write("$ run the documented main.rs against both databases\n")
+                output.flush()
+                documented_run = subprocess.run(
+                    ["cargo", "run", "--locked", "--offline", *documented_flags],
+                    cwd=project,
+                    env=documented_env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+                output.write(documented_run.stdout)
+                output.flush()
+                documented_run.check_returncode()
+                for expected in (
+                    "MySql: id=42, name=hello",
+                    "Doris: id=42, name=hello",
+                ):
+                    if expected not in documented_run.stdout.splitlines():
+                        raise SystemExit(
+                            f"documented application output missing: {expected}"
+                        )
+            documented_applications.append(
+                {
+                    "language": language,
+                    "source": str(documented_source),
+                    "source_sha256": hashlib.sha256(
+                        documented_source.read_bytes()
+                    ).hexdigest(),
+                    "compiled": True,
+                    "live": args.live,
+                }
+            )
 
         metadata = json.loads(
             subprocess.check_output(
@@ -399,6 +428,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "compiled": True,
             "documented_manifest_and_main_compiled": True,
             "documented_application_live": args.live,
+            "documented_applications": documented_applications,
             "single_native_mysql_identity": True,
             "zero_argument_macro_describe_and_execute": macro_paths,
             "live": (

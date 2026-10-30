@@ -8,7 +8,7 @@ description = "SQLx MySQL and Apache Doris connections, native types, and operat
 readme = "README.md"
 keywords = ["sqlx", "doris", "mysql", "database", "async"]
 categories = ["database"]
-include = ["src/**", "examples/**", "tests/**", "README.md", "LICENSE", "Cargo.toml", "Cargo.lock"]
+include = ["src/**", "examples/**", "tests/**", "README.md", "README.en.md", "LICENSE", "Cargo.toml", "Cargo.lock"]
 
 [[example]]
 name = "stream_load"

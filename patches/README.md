@@ -1,5 +1,7 @@
 # 随附的 SQLx MySQL 驱动
 
+简体中文 | [English](README.en.md)
+
 本目录的 sqlx-mysql 基于上游 0.9.0，保留包名、版本号和公共 MySql 类型。
 修改的是客户端驱动，Doris FE/BE 使用官方版本，无需修改或重新编译服务器。
 完整应用接入步骤见 SDK README；源码包还提供 docs/INSTALLATION.md。

@@ -118,7 +118,10 @@ def verify_sdk(project, sdk_archive, version):
         str(p.relative_to(source)): p.read_bytes()
         for p in source.rglob("*")
         if p.is_file()
-        and (p.suffix in (".rs", ".py") or p.name in ("README.md", "LICENSE"))
+        and (
+            p.suffix in (".rs", ".py")
+            or p.name in ("README.md", "README.en.md", "LICENSE")
+        )
     }
     allowed = set(expected) | {
         "Cargo.toml",
@@ -175,28 +178,32 @@ def verify_bundle(project, archive, sdk_files, version):
             ] = path.read_bytes()
     for name in [
         "README.md",
+        "README.en.md",
         "sqlx-mysql-provenance.json",
         "prepare-ok.patch",
         "native-transactions.patch",
         "safe-bindings.patch",
     ]:
         expected["patches/" + name] = (project / "patches" / name).read_bytes()
-    if set(files) != set(expected) | {"README.md", "SHA256SUMS.json"}:
+    if set(files) != set(expected) | {"README.md", "README.en.md", "SHA256SUMS.json"}:
         raise ValueError(
             "bundle payload differs from the explicit SDK/SQLx-only delivery set"
         )
     for name, contents in expected.items():
         if files[name] != contents:
             raise ValueError(f"stale bundle source or mismatched SDK archive: {name}")
-    readme = files["README.md"].decode()
-    if (
-        "[patch.crates-io]" not in readme
-        or "sqlx-mysql" not in readme
-        or not any(scope in readme for scope in ("workspace-root", "workspace 的根"))
-    ):
-        raise ValueError(
-            "required application-root companion installation instructions missing"
-        )
+    for name in ("README.md", "README.en.md"):
+        readme = files[name].decode()
+        if (
+            "[patch.crates-io]" not in readme
+            or "sqlx-mysql" not in readme
+            or not any(
+                scope in readme for scope in ("workspace-root", "workspace 的根")
+            )
+        ):
+            raise ValueError(
+                f"required application-root companion installation instructions missing: {name}"
+            )
     return dict(
         files=len(files),
         manifest_entries=len(manifest),

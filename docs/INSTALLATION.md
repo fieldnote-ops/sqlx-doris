@@ -1,5 +1,7 @@
 # 安装与第一个程序
 
+简体中文 | [English](INSTALLATION.en.md)
+
 要求 Rust 1.94+ 和 C 编译工具。业务使用 Cargo 构建，不需要 Python。
 当前 0.1.0 尚未公开发布，请使用获取到的源码或 compat 配套包。
 下面从源码接入；配套包用户可直接按[SDK README](../crates/sqlx-doris/README.md)操作。

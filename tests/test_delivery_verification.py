@@ -42,6 +42,7 @@ class DeliveryTests(unittest.TestCase):
             "src/lib.rs": b"pub fn value() {}",
             "tests/check.rs": b"#[test] fn ok() {}",
             "README.md": b"SDK",
+            "README.en.md": b"SDK in English",
             "LICENSE": b"Apache",
             "Cargo.toml": b"[package]",
         }.items():
@@ -64,6 +65,7 @@ class DeliveryTests(unittest.TestCase):
         (self.project / "patches/sqlx-mysql/src/lib.rs").write_bytes(b"driver")
         for name in [
             "README.md",
+            "README.en.md",
             "sqlx-mysql-provenance.json",
             "prepare-ok.patch",
             "native-transactions.patch",
@@ -80,6 +82,7 @@ class DeliveryTests(unittest.TestCase):
         self.payload["README.md"] = (
             "应用或 Cargo workspace 的根 Cargo.toml 配置 [patch.crates-io] sqlx-mysql"
         ).encode()
+        self.payload["README.en.md"] = b"workspace-root [patch.crates-io] sqlx-mysql"
 
     def make_sdk(self):
         write_tar(self.archive, "sqlx-doris-0.1.0/", self.files)
@@ -93,7 +96,7 @@ class DeliveryTests(unittest.TestCase):
 
     def test_exact_source_pair_and_generated_vcs_metadata(self):
         _, result = delivery.verify_sdk(self.project, self.archive, "0.1.0")
-        self.assertEqual(result["current_source_test_readme_license_files"], 4)
+        self.assertEqual(result["current_source_test_readme_license_files"], 5)
         self.make_bundle()
         self.assertTrue(
             delivery.verify_bundle(self.project, self.bundle, self.files, "0.1.0")[
@@ -112,7 +115,7 @@ class DeliveryTests(unittest.TestCase):
         )
 
     def test_sdk_stale_source_missing_test_and_manifest_are_rejected(self):
-        for name in ["src/lib.rs", "tests/check.rs", "Cargo.toml.orig"]:
+        for name in ["src/lib.rs", "tests/check.rs", "README.en.md", "Cargo.toml.orig"]:
             original = self.files[name]
             self.files[name] = b"stale"
             self.make_sdk()

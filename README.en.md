@@ -1,0 +1,63 @@
+# sqlx-doris
+
+[简体中文](README.md) | English
+
+Share Rust SQLx queries, parameter binding, and row mapping between MySQL and Apache Doris.
+Select the backend when connecting, then use native `MySqlPool`, `FromRow`, `QueryBuilder`, and `.bind()`.
+Table models, transactions, affected row counts, and data visibility follow each database's own rules.
+
+Version 0.1.0 is not publicly released. Tested with SQLx 0.9.0, MySQL 8.4.13, and official Doris 4.1.5;
+requires Rust 1.94+.
+Install both the SDK and the supplied sqlx-mysql driver patch, with one `[patch.crates-io]` entry in the
+application's root Cargo.toml.
+See the [installation guide](docs/INSTALLATION.en.md) for the complete setup.
+
+## Run your first query
+
+Run these commands from the source root. You need Rust/Cargo, a C toolchain, Python 3.12+, and accessible
+MySQL and Doris instances.
+Replace the volume path, credentials, and addresses with your own values. The app database in each URL must
+already exist.
+The example queries constants; it creates no tables and writes no data.
+
+```sh
+export SQLX_DORIS_EXTERNAL_VOLUME="<absolute path to a mounted build volume>"
+export MYSQL_URL='mysql://user:password@mysql-host:3306/app'
+export DORIS_URL='mysql://user:password@doris-fe:9030/app'
+./scripts/dev --print-env
+./scripts/dev cargo fetch --locked
+./scripts/dev cargo run --locked -p sqlx-doris --example dual_pool
+```
+
+On success, it prints `MySQL and Doris returned User { id: 42, ... }`.
+Build output, caches, and temporary files go to the selected build volume; an unmounted volume causes an
+immediate failure.
+Python is only needed for source scripts, not for applications using the SDK.
+
+## Installation and usage
+
+- [Installation](docs/INSTALLATION.en.md): source or compatibility bundle setup, a complete program,
+  connection settings, and troubleshooting.
+- [Usage](docs/USAGE.en.md): pools, transactions, Doris types, Stream Load, and runnable examples.
+- [Compatibility](docs/COMPATIBILITY.en.md): BLOB, TIME, defaults, pagination, and database semantics.
+- [Testing](docs/TESTING.en.md): checks without databases, tests against both databases, prerequisites, and
+  actual results.
+- [Dependencies and licenses](docs/DEPENDENCIES.en.md): driver provenance and security notes for locked
+  dependencies.
+
+## Background
+
+This library reworks a Python project from 2022 that used both MySQL and Doris.
+Some business tables moved between the two databases as performance requirements changed. At the time, the
+driver used for newer MySQL versions could not connect to Doris, which needed a driver supporting the older
+protocol. Moving a table also meant changing data access code.
+
+Built on Rust SQLx, this library handles protocol and parameter binding differences in one place.
+When a table changes databases, applications adjust the connection settings and backend selection while
+reusing SQL, `.bind()`, and row mapping where supported. This reduces repeated adaptation and maintenance.
+Table migration and differences in database semantics remain the application's responsibility.
+
+## License
+
+The SDK is licensed under Apache-2.0. The supplied sqlx-mysql driver retains its upstream Apache-2.0 OR MIT
+license; full license texts are included in the source and compatibility bundle.

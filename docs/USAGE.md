@@ -1,5 +1,7 @@
 # 使用指南
 
+简体中文 | [English](USAGE.en.md)
+
 先按[安装指南](INSTALLATION.md)跑通查询。下面的 Rust 函数可放入已有的 Tokio 应用；SQL、HTTP 地址和账号由应用配置。
 
 ## 连接和连接池

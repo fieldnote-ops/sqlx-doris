@@ -1,5 +1,7 @@
 # 兼容范围和数据库差异
 
+简体中文 | [English](COMPATIBILITY.en.md)
+
 以下范围已在 SQLx 0.9.0、MySQL 8.4.13 和官方 Doris 4.1.5 上测试。其他版本和未列出的 SQL 写法需要在目标实例验证。
 
 | 能力 | 共同使用方式 | 边界 |
@@ -9,7 +11,7 @@
 | VALUES/DEFAULT | 列清单、静态默认值、NULL、多行写 | 不猜 schema、不拆批；动态默认值、空 VALUES、自增序列保持后端语义 |
 | 分页 | LIMIT ?、LIMIT ? OFFSET ?、LIMIT ?,? | 原生整数参数；复杂表达式、显式 prepare/在线 describe 元数据有限 |
 | BLOB 条件 | 简单列=、<>、!=、<=>、<、<=、>、>=、IN/NOT IN、BETWEEN/NOT BETWEEN | 保留字节顺序/NULL 三值语义；不模拟 LIKE、任意 CASE/函数/元组/子查询或非 NULL 数值混用 |
-| BLOB 写入 | Vec<u8>与原 VALUES/`.bind()` | Doris 内部 STRING 采用公开表达式，不表示 OLAP 支持 BLOB/VARBINARY 列 |
+| BLOB 写入 | `Vec<u8>`与原 VALUES/`.bind()` | Doris 内部 STRING 采用公开表达式，不表示 OLAP 支持 BLOB/VARBINARY 列 |
 | TIME | `MySqlTime`、chrono::`NaiveTime`，原生绑定与无损读取 | NaiveTime 拒绝负值/跨天；MySqlTime 范围与 Doris 完整微秒边界区分 |
 | 显式 TIME | `types::Time` | ±838:59:59.999999；Doris 内部 OLAP 不支持 TIME 列，查询与显式 STRING 表示分开 |
 | 大整数/Decimal | `LargeInt`、`BigDecimal` | 按目标 precision/scale 舍入或拒绝溢出，不经过浮点中转 |

@@ -24,6 +24,7 @@ modified = json.loads((project / "patches/sqlx-mysql-provenance.json").read_text
     "modified_files"
 ]
 commands = [
+    [sys.executable, "-B", "scripts/check-docs"],
     [sys.executable, "-B", "scripts/check-sqlx-patch"],
     [
         "rustfmt",
@@ -83,6 +84,16 @@ commands = [
     ],
     [sys.executable, "-B", "scripts/package-compat"],
     [sys.executable, "-B", "scripts/verify-delivery"],
+    [
+        sys.executable,
+        "-B",
+        "scripts/check-docs",
+        "--bundle",
+        str(
+            Path(os.environ["CARGO_TARGET_DIR"])
+            / "package/sqlx-doris-compat-0.1.0.tar.gz"
+        ),
+    ],
 ]
 env = os.environ.copy()
 env["RUSTDOCFLAGS"] = "-D missing-docs -D rustdoc::broken_intra_doc_links"

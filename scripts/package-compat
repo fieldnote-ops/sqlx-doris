@@ -35,7 +35,8 @@ with tempfile.TemporaryDirectory(prefix="compat-bundle-") as temporary:
     # Refuse a stale archive instead of shipping a mixed-source bundle.
     for path in (project / "crates/sqlx-doris").rglob("*"):
         if path.is_file() and (
-            path.suffix in (".rs", ".py") or path.name in ("README.md", "LICENSE")
+            path.suffix in (".rs", ".py")
+            or path.name in ("README.md", "README.en.md", "LICENSE")
         ):
             relative = path.relative_to(project / "crates/sqlx-doris")
             if path.read_bytes() != (unpacked / relative).read_bytes():
@@ -44,6 +45,7 @@ with tempfile.TemporaryDirectory(prefix="compat-bundle-") as temporary:
     shutil.copytree(project / "patches/sqlx-mysql", stage / "patches/sqlx-mysql")
     for name in [
         "README.md",
+        "README.en.md",
         "sqlx-mysql-provenance.json",
         "prepare-ok.patch",
         "native-transactions.patch",
@@ -52,6 +54,8 @@ with tempfile.TemporaryDirectory(prefix="compat-bundle-") as temporary:
         shutil.copy2(project / "patches" / name, stage / "patches" / name)
     (stage / "README.md").write_text(
         """# sqlx-doris 0.1.0 配套包
+
+简体中文 | [English](README.en.md)
 
 本包包含 SDK 和必须配套使用的 sqlx-mysql 0.9.0 驱动。
 按 [SDK 安装指南](sdk/sqlx-doris-0.1.0/README.md)准备应用目录，
@@ -63,6 +67,25 @@ with tempfile.TemporaryDirectory(prefix="compat-bundle-") as temporary:
 [驱动说明](patches/README.md)记录兼容处理、来源和许可证。
 完整使用、兼容范围和测试说明见源码包的 docs 目录。
 本版本尚未公开发布。
+"""
+    )
+    (stage / "README.en.md").write_text(
+        """# sqlx-doris 0.1.0 compatibility bundle
+
+[简体中文](README.md) | English
+
+This bundle contains the SDK and its required sqlx-mysql 0.9.0 companion driver.
+Follow the [SDK installation guide](sdk/sqlx-doris-0.1.0/README.en.md) to create your
+application. It includes a complete Cargo.toml, main.rs, connection settings, and
+run commands.
+
+Configure `[patch.crates-io]` in the application's or workspace-root Cargo.toml
+so the application, SQLx macros, and SDK share native MySql types. The SDK .crate
+alone does not activate the driver patch.
+
+The [driver guide](patches/README.en.md) describes compatibility, provenance, and
+licenses. Full usage, compatibility, and testing guides are in the source
+archive's docs directory. This version is not publicly released.
 """
     )
     files = {

@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+"""Check paired user guides, runnable examples, and local documentation links."""
+import argparse
+import os
+from pathlib import Path, PurePosixPath
+import posixpath
+import re
+import subprocess
+import sys
+import tarfile
+import unicodedata
+from urllib.parse import unquote, urlsplit
+
+project = Path(__file__).resolve().parents[1]
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    os.execv(
+        str(project / "scripts/dev"),
+        [
+            str(project / "scripts/dev"),
+            sys.executable,
+            "-B",
+            str(Path(__file__).resolve()),
+            *sys.argv[1:],
+        ],
+    )
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument(
+    "--bundle", type=Path, help="also check Markdown links in a compatibility bundle"
+)
+args = parser.parse_args()
+
+
+def without_fences(text):
+    return re.sub(r"```[^\n]*\n.*?\n```", "", text, flags=re.S)
+
+
+def anchors(text):
+    result = set()
+    counts = {}
+    for heading in re.findall(r"^#+\s+(.+)$", without_fences(text), re.M):
+        base = "".join(
+            c
+            for c in heading.lower().replace(" ", "-")
+            if c in "_-" or not unicodedata.category(c).startswith(("P", "S"))
+        )
+        count = counts.get(base, 0)
+        counts[base] = count + 1
+        result.add(base if count == 0 else f"{base}-{count}")
+    return result
+
+
+def check_links(name, text, exists, read):
+    for destination in re.findall(
+        r"(?<!!)\[[^\]]*\]\(([^\s)]+)\)", without_fences(text)
+    ):
+        url = urlsplit(destination)
+        if url.scheme or url.netloc:
+            continue
+        target = (
+            posixpath.normpath(str(PurePosixPath(name).parent / unquote(url.path)))
+            if url.path
+            else name
+        )
+        if target.startswith("../") or target.startswith("/") or not exists(target):
+            raise ValueError(f"broken local link in {name}: {destination}")
+        if url.fragment and unquote(url.fragment) not in anchors(read(target)):
+            raise ValueError(f"missing heading in {name}: {destination}")
+
+
+def code_blocks(text):
+    result = []
+    for language, code in re.findall(r"```([^\n]*)\n(.*?)\n```", text, re.S):
+        if language in ("sh", "ini"):
+            code = re.sub(r"<[^>]+>", "<placeholder>", code)
+        if language == "sh":
+            code = "\n".join(
+                line for line in code.splitlines() if not line.lstrip().startswith("#")
+            )
+        result.append((language, code))
+    return result
+
+
+try:
+    chinese = [
+        Path("README.md"),
+        Path("CHANGELOG.md"),
+        Path("crates/sqlx-doris/README.md"),
+        Path("patches/README.md"),
+    ]
+    chinese += sorted(
+        p.relative_to(project)
+        for p in (project / "docs").glob("*.md")
+        if not p.name.endswith(".en.md")
+    )
+    shell_count = 0
+    for name in chinese:
+        english = name.with_name(name.stem + ".en.md")
+        zh = (project / name).read_text()
+        en = (project / english).read_text()
+        if (
+            f"[English]({english.name})" not in zh
+            or f"[简体中文]({name.name})" not in en
+        ):
+            raise ValueError(f"missing language navigation: {name}")
+        if re.search(r"[\u4e00-\u9fff]", en.replace(f"[简体中文]({name.name})", "")):
+            raise ValueError(f"untranslated Chinese text in {english}")
+        if re.findall(r"^#+(?= )", zh, re.M) != re.findall(r"^#+(?= )", en, re.M):
+            raise ValueError(f"section structure differs: {name}")
+        if sum(line.startswith("|") for line in zh.splitlines()) != sum(
+            line.startswith("|") for line in en.splitlines()
+        ):
+            raise ValueError(f"table row counts differ: {name}")
+        if code_blocks(zh) != code_blocks(en):
+            raise ValueError(f"code or command blocks differ: {name}")
+        for document, text in ((name, zh), (english, en)):
+            if text.count("```") % 2:
+                raise ValueError(f"unclosed code fence in {document}")
+            check_links(
+                str(document),
+                text,
+                lambda f: (project / f).is_file(),
+                lambda f: (project / f).read_text(),
+            )
+            for code in re.findall(r"```sh\n(.*?)\n```", text, re.S):
+                subprocess.run(["sh", "-n"], input=code, text=True, check=True)
+                shell_count += 1
+    print(
+        f"Bilingual guides passed: {len(chinese)} pairs; {shell_count} shell blocks; examples and local links match."
+    )
+    if args.bundle:
+        build = Path(os.environ["SQLX_DORIS_BUILD_ROOT"]).resolve()
+        if not args.bundle.resolve().is_relative_to(build):
+            raise ValueError("bundle must be on the selected external build root")
+        with tarfile.open(args.bundle) as archive:
+            files = {
+                member.name.split("/", 1)[1]: archive.extractfile(member).read()
+                for member in archive.getmembers()
+                if member.isfile()
+            }
+        markdown = [name for name in files if name.endswith(".md")]
+        for name in markdown:
+            check_links(
+                name,
+                files[name].decode(),
+                lambda f: f in files,
+                lambda f: files[f].decode(),
+            )
+        print(f"Compatibility bundle Markdown links passed: {len(markdown)} files.")
+except (OSError, ValueError, subprocess.CalledProcessError, tarfile.TarError) as error:
+    raise SystemExit(f"Documentation check failed: {error}")

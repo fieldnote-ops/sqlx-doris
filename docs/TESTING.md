@@ -1,5 +1,7 @@
 # 构建与测试
 
+简体中文 | [English](TESTING.en.md)
+
 以下命令均在源码根目录执行。业务项目接入见[安装指南](INSTALLATION.md)，不需要先运行整个测试集。
 
 ## 1. 准备构建环境
@@ -45,8 +47,8 @@ export PATH="$SQLX_DORIS_BUILD_ROOT/runtime/dev-python/bin:$PATH"
 ./scripts/dev ./scripts/test-consumer
 ```
 
-check 依次执行格式检查、Clippy、Python 工具测试、Rust 普通测试、驱动测试、feature 构建、API 文档和打包校验。
-test-consumer 从安装文档中提取完整 Cargo.toml 和 main.rs，在独立应用中编译，并检查原生 MySql 类型能否互换。
+check 依次执行双语文档、格式检查、Clippy、Python 工具测试、Rust 普通测试、驱动测试、feature 构建、API 文档和打包校验。
+test-consumer 从中英文安装文档中提取完整 Cargo.toml 和 main.rs，在独立应用中编译，并检查原生 MySql 类型能否互换。
 完整数据库用例此时显示 ignored，表示尚未执行，不算通过。
 
 单独检查格式或最低 Rust 版本：
@@ -183,7 +185,8 @@ compat 包内的 SHA256SUMS.json 覆盖所有文件。安装路径见[安装指�
 | fmt/clippy/API 文档 | 通过，clippy 与严格文档检查无警告 |
 | 示例与宏 | 五个示例、双库在线/离线宏通过；缺缓存时报错符合预期 |
 | 独立安装 | 源码和 compat 包实际连接双库，原生类型可互换；缺 patch 时编译失败符合预期 |
-| 文档中的完整程序 | 原样使用两份 Cargo.toml/main.rs，源码和 compat 安装均连接双库并输出 id=42、name=hello |
+| 文档中的完整程序 | 中英文 × 源码/compat 四种组合均使用文档中的 Cargo.toml/main.rs，连接双库并输出 id=42、name=hello |
+| 中英文文档 | 9 组文档的语言切换、本地链接、示例一致性和 40 段 shell 语法通过；示例偏移、失效链接和缺英文文件时明确失败 |
 | 使用指南代码 | MySQL/Doris 建表与事务、Doris TLS 和 JSON 导入连接真库通过 |
 | 源码与配套包 | 原始 SQLx 补丁重建、文件清单和 SDK/驱动配对校验通过 |
 | 统一排版与工作流 | Rustfmt/Black 检查及 actionlint 静态检查通过；没有把静态检查当作远端 CI 执行 |
