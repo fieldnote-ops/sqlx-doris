@@ -95,6 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 在 sdk-demo 目录设置连接并运行。把账号和地址换成自己的值，app 库需要已存在：
 
 ```sh
+cd sdk-demo
 export MYSQL_URL='mysql://user:password@mysql-host:3306/app'
 export DORIS_URL='mysql://user:password@doris-fe:9030/app'
 cargo run

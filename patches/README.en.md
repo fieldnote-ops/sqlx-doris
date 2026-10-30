@@ -4,8 +4,8 @@
 
 The sqlx-mysql directory is based on upstream 0.9.0 and retains its package name, version, and public MySql
 types.
-Only the client driver is modified. Doris FE/BE runs the official version and needs no server modifications or
-rebuilds.
+Only the client driver is modified. Doris runs an unmodified official build; no FE/BE changes or rebuilds
+are required.
 See the SDK README for a complete application setup; the source distribution also includes
 docs/INSTALLATION.en.md.
 
@@ -19,8 +19,8 @@ sqlx-mysql = { path = "../sqlx-doris/patches/sqlx-mysql" }
 ```
 
 The path is relative to that root Cargo.toml; adjust it to your layout.
-The application, SQLx macros, and SDK then use the same sqlx-mysql, allowing native pools, rows, and
-transactions to be interchanged.
+The application, SQLx macros, and SDK then use the same sqlx-mysql, so their native pool, row, and
+transaction types remain identical.
 A library's patch does not propagate to its consumers. Omitting it causes a compile error for the missing
 compatibility API.
 No global Cargo configuration or registry source changes are needed.
@@ -36,8 +36,9 @@ No global Cargo configuration or registry source changes are needed.
 - Select compatibility paths before sending packets. Writes are not replayed after failures, and unsupported
   types or SQL forms return explicit errors.
 
-Ordinary MySQL connections retain the native protocol. TIME membership convenience is a separate option: off
-by default in the driver, on by default in SDK MySQL settings, and can be disabled explicitly.
+Ordinary MySQL connections retain the native protocol. TIME compatibility for IN/NOT IN predicates is a
+separate option: disabled by default in the driver, enabled by the SDK for MySQL, and can be explicitly
+disabled.
 See the SDK README for scope and database semantics, with the full list in docs/COMPATIBILITY.en.md in the
 source distribution.
 

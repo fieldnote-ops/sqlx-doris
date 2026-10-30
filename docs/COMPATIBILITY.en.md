@@ -13,7 +13,7 @@ versions and unlisted SQL forms against your target instance.
 | Pagination | LIMIT ?, LIMIT ? OFFSET ?, LIMIT ?,? | Native integer parameters; complex expressions and metadata from explicit prepare/online describe have limited support |
 | BLOB predicates | Simple column =, <>, !=, <=>, <, <=, >, >=, IN/NOT IN, BETWEEN/NOT BETWEEN | Preserve byte ordering and SQL NULL semantics; no emulation of LIKE, arbitrary CASE/functions/tuples/subqueries, or mixing with non-NULL numeric values |
 | BLOB writes | `Vec<u8>` with original VALUES/`.bind()` | Uses public expressions with Doris STRING internally; this does not imply BLOB/VARBINARY support in OLAP columns |
-| TIME | `MySqlTime`, chrono::`NaiveTime`, native binding and lossless reads | NaiveTime rejects negative/multi-day durations; distinguish the MySqlTime range from Doris's full microsecond boundaries |
+| TIME | `MySqlTime`, chrono::`NaiveTime`, native binding and lossless reads | NaiveTime rejects negative durations and durations of 24 hours or more; distinguish the MySqlTime range from Doris's full microsecond boundaries |
 | Explicit TIME | `types::Time` | ±838:59:59.999999; Doris OLAP does not support TIME columns, so query values and explicit STRING representations are separate |
 | Large integers/Decimal | LargeInt, BigDecimal | Round to the target precision/scale or reject overflow; no conversion through floating point |
 | Complex types | Array/Map/Struct/Variant with explicit projections/constructors | MAP can preserve non-string keys; VARIANT may normalize values or lose information about how root values are presented |
@@ -25,7 +25,8 @@ versions and unlisted SQL forms against your target instance.
 
 TIME membership compatibility only handles explicit TIME parameters. Conditions containing only strings do not
 infer the column type.
-Doris TIME metadata selects lossless text reads before execution; ordinary results remain prepared.
+For Doris TIME results, the driver uses metadata to select lossless text reads before execution; ordinary
+results retain prepared-statement handling.
 String encoding uses the actual session sql_mode rather than a cached guess.
 
 Parameter compatibility supports a limited set of SQL forms. Complex byte predicates, mixed non-NULL types,

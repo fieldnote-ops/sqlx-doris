@@ -4,13 +4,13 @@
 
 Requires Rust 1.94+ and a C toolchain. Applications build with Cargo and do not need Python.
 Version 0.1.0 is not publicly released; use the supplied source or compatibility bundle.
-This guide uses the source distribution. Bundle users can follow the [SDK
-README](../crates/sqlx-doris/README.en.md) instead.
+This guide uses the source distribution. If you have the compatibility bundle, follow the
+[SDK README](../crates/sqlx-doris/README.en.md) instead.
 
 ## 1. Prepare the source and application directories
 
 If you already have the source, place it next to your application directory and name it sqlx-doris.
-If you received delivery files, place them in an empty working directory and run one of the following there:
+If you have the distribution files, place them in an empty working directory and choose one of these options:
 
 ```sh
 git clone sqlx-doris-0.1.0.bundle sqlx-doris
@@ -61,10 +61,9 @@ sqlx-mysql = { path = "../sqlx-doris/patches/sqlx-mysql" }
 
 In this standalone application, both path entries are relative to sdk-demo/Cargo.toml. Adjust them to your
 layout instead of hardcoding machine-specific absolute paths.
-For a Cargo workspace, dependency paths are relative to the business crate's Cargo.toml. Put
-`[patch.crates-io]` in the workspace root,
-with its path relative to the root Cargo.toml. Paths in workspace.dependencies are also relative to the
-workspace root.
+In a Cargo workspace, a dependency's path is relative to the application crate's Cargo.toml. Put
+`[patch.crates-io]` in the workspace root and resolve its path relative to that root Cargo.toml. Paths in
+`[workspace.dependencies]` are also relative to the workspace root.
 Align existing SQLx dependencies to `=0.9.0`. The direct SQLx dependency supports the FromRow derive macro;
 Tokio supplies the async runtime.
 
@@ -111,8 +110,8 @@ database, and maps the result to the same struct.
 
 ## 4. Configure connections and run
 
-Prepare accounts that can log in to MySQL and Doris. The app database in each example URL must already exist;
-replace it with a database you can access.
+Use accounts that can access MySQL and Doris. The database named `app` in each example URL must already
+exist; replace it with a database you can access.
 To create demonstration databases, an administrator can run this on each database server:
 
 ```sql
@@ -143,8 +142,8 @@ URL-encode characters such as @, /, #, and % in passwords. Alternatively, set cr
 
 ## Add to an existing project
 
-Borrow `client.pool()` directly, or call `client.into_pool()` to obtain the native MySqlPool.
-`Client::from_pool` only wraps an existing pool; it does not install Doris initialization or protocol options.
+Use `client.pool()` to borrow the native pool, or `client.into_pool()` to take ownership of it.
+`Client::from_pool` only wraps an existing pool; it does not apply Doris initialization or protocol options.
 Use PoolBuilder to create Doris pools.
 Continue using `sqlx::query`, `.bind()`, `FromRow`, and `QueryBuilder` in application code.
 
@@ -158,7 +157,7 @@ DATABASE_URL or offline metadata.
 | Symptom | Check |
 | --- | --- |
 | Local dependency path not found | Check the directory layout and both path entries in the application's root Cargo.toml |
-| Missing doris_transaction_compatibility at compile time | The root patch is inactive; check the workspace root and sqlx-mysql path |
+| Missing doris_transaction_compatibility at compile time | Cargo is not using the supplied patch; check the workspace root and sqlx-mysql path |
 | MySqlPool type mismatch | Use cargo tree -i sqlx-mysql to check for mixed SQLx versions |
 | NotPresent at startup (missing environment variable) | Set the connection variables in the same shell that runs the program |
 | Authentication failure or missing database | Check permissions, password encoding, database name, and the FE SQL port |

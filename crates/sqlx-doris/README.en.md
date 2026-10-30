@@ -49,9 +49,9 @@ sqlx-mysql = { path = "../sqlx-doris-compat-0.1.0/patches/sqlx-mysql" }
 
 In this standalone application, both path entries are relative to sdk-demo/Cargo.toml. Adjust them if your
 directory names differ.
-In a Cargo workspace, dependency paths are relative to the manifest declaring them. `[patch.crates-io]` must
-be in the workspace root,
-with its path relative to the root Cargo.toml. A library's patch entries do not propagate to its consumers.
+In a Cargo workspace, dependency paths are relative to the manifest declaring them. Put `[patch.crates-io]`
+in the workspace root, with its path relative to that root Cargo.toml. A library's patch entries do not
+propagate to its consumers.
 The SDK .crate alone does not contain the companion driver and cannot replace the complete compatibility
 bundle.
 
@@ -96,17 +96,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-From sdk-demo, configure the connections and run. Replace the credentials and addresses; the app databases
-must already exist:
+Enter sdk-demo, configure the connections, and run. Replace the credentials and addresses; the databases
+named `app` must already exist:
 
 ```sh
+cd sdk-demo
 export MYSQL_URL='mysql://user:password@mysql-host:3306/app'
 export DORIS_URL='mysql://user:password@doris-fe:9030/app'
 cargo run
 ```
 
-The program creates no tables. It binds two parameters and reads the result. Both databases should print
-`id=42, name=hello`.
+The program creates no tables. It binds two parameters and reads the result. The program should print
+`id=42, name=hello` for each database.
 Doris SQL connections also use mysql:// URLs. `Backend::Doris` enables the compatibility options; changing
 only the URL while retaining `Backend::MySql` is insufficient.
 
@@ -114,8 +115,8 @@ only the URL while retaining `Backend::MySql` is insufficient.
 
 The `stream-load` feature is enabled by default and provides `stream_load::StreamLoadClient` for HTTP imports.
 Set `default-features = false` for SQL-only use.
-Enable `macros` for SQLx `query!` and `query_as!`, and provide an online database description or offline
-metadata for the target database.
+Enable `macros` for SQLx `query!` and `query_as!`. These macros need a connection to the target database at
+compile time or matching offline metadata.
 
 Supported BLOB/TIME parameters, defaults, and pagination have defined limits. Doris differs from MySQL in
 reads within transactions, savepoints, and table models; SQL statements are not universally equivalent.

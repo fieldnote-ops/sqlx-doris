@@ -92,12 +92,12 @@ pub async fn insert_event(pool: &sqlx::MySqlPool, id: i64, note: &str) -> sqlx::
 }
 ```
 
-Read outside Doris write transactions. Savepoints, queries/DDL inside transactions, and cross-database
+Run reads outside a Doris write transaction. Savepoints, queries/DDL inside transactions, and cross-database
 transactions are outside the compatibility scope.
 If a write or commit response is lost, the application must check the final state rather than retry every
 error.
 When a transaction is cancelled or dropped, the driver rolls it back or closes a connection that cannot safely
-be reused. It never replays uncertain business writes.
+be reused. It never replays application writes whose outcome is uncertain.
 
 ## Doris types and operations
 
@@ -144,7 +144,7 @@ TableName::new accepts the database and table names. See
 [stream_load.rs](../crates/sqlx-doris/examples/stream_load.rs) for full configuration and cleanup.
 For complex ARRAY/MAP/STRUCT columns, use `load_table(&TableDefinition).send_json(...)` so the table
 definition guides encoding.
-Ordinary load(table).send_bytes() uploads the raw data.
+Use `load(table).send_bytes()` to upload raw data without schema-based encoding.
 
 Check LoadReceipt::state() and is_visible() after the call. Acceptance, commit, and visibility are distinct
 states.

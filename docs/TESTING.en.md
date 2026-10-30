@@ -2,8 +2,8 @@
 
 [简体中文](TESTING.md) | English
 
-Run these commands from the source root. Applications can follow [installation](INSTALLATION.en.md) without
-running the entire test suite.
+Run these commands from the source root. To use the SDK, follow [installation](INSTALLATION.en.md); you do
+not need to run the entire test suite.
 
 ## 1. Prepare the build environment
 
@@ -94,7 +94,7 @@ dedicated, disposable instances.
 Scripts only connect to instances; they do not install databases or manage VMs. Before pulling or starting
 containers, verify that image layers, the Docker VM disk, and database volumes are on the build volume.
 
-Create the fixed test database on both servers:
+Create a database named sqlx_doris_test on both servers:
 
 ```sql
 CREATE DATABASE IF NOT EXISTS sqlx_doris_test;
@@ -103,7 +103,7 @@ CREATE DATABASE IF NOT EXISTS sqlx_doris_test;
 Accounts must be able to create tables, create users, and grant permissions. The full suite's HTTP TLS proxy
 uses the Doris root account with an empty password, only on isolated test instances.
 SQL and HTTP endpoints must be accessible through local ports or forwarding for certificate and hostname
-checks. These are example native ports; replace them with your local forwarded ports as needed:
+checks. The examples use the default service ports; substitute your local forwarded ports if needed:
 
 ```sh
 export MYSQL_TEST_URL='mysql://root@127.0.0.1:3306/sqlx_doris_test'
@@ -130,7 +130,8 @@ The first script installs PyArrow 22.0.0 in an external Python environment and g
 The second generates test certificates with OpenSSL.
 Output goes under SQLX_DORIS_BUILD_ROOT/fixtures; the scripts print the actual paths. Private keys are not
 written to Git.
-The certificates contain only DNS localhost, with no IP SAN, for hostname mismatch tests.
+The certificates contain a DNS subject alternative name (SAN) for localhost but no IP SAN, so the tests
+can check hostname mismatches.
 
 Copy the generated certificates into the two dedicated server deployments and configure TLS.
 Replace <server certificate directory> with the actual server-side path.
@@ -219,8 +220,8 @@ semantics.
 | Source and compatibility bundle | Original SQLx patch reconstruction, file lists, and SDK/driver pairing passed |
 | Formatting and workflow | Rustfmt/Black and actionlint static checks passed; static validation is not reported as a remote CI run |
 
-Command logs and summary.json files are under SQLX_DORIS_ARTIFACTS_DIR, as shown by `./scripts/dev
---print-env`.
+Command logs and summary.json files are under SQLX_DORIS_ARTIFACTS_DIR. Run
+`./scripts/dev --print-env` to see the path.
 The 231 tests do not include external Catalogs, Broker, Kafka, multiple FE deployments, or performance tests.
 
 HTTPS/mTLS clients and redirects were verified against real databases through a local TLS proxy. Native server

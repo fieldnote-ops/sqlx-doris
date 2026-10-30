@@ -16,7 +16,8 @@ See the [installation guide](docs/INSTALLATION.en.md) for the complete setup.
 
 Run these commands from the source root. You need Rust/Cargo, a C toolchain, Python 3.12+, and accessible
 MySQL and Doris instances.
-Replace the volume path, credentials, and addresses with your own values. The app database in each URL must
+Replace the volume path, credentials, and addresses with your own values. The database named `app` in each URL
+must
 already exist.
 The example queries constants; it creates no tables and writes no data.
 
@@ -47,15 +48,15 @@ Python is only needed for source scripts, not for applications using the SDK.
 
 ## Background
 
-This library reworks a Python project from 2022 that used both MySQL and Doris.
-Some business tables moved between the two databases as performance requirements changed. At the time, the
-driver used for newer MySQL versions could not connect to Doris, which needed a driver supporting the older
-protocol. Moving a table also meant changing data access code.
+This is a Rust rework of a 2022 Python project that used both MySQL and Doris.
+Performance tuning sometimes meant moving individual application tables between the two databases. At the
+time, the Python driver used for newer MySQL versions did not work with Doris, which needed a separate
+driver supporting the older MySQL protocol. Moving a table also meant changing data access code.
 
 Built on Rust SQLx, this library handles protocol and parameter binding differences in one place.
-When a table changes databases, applications adjust the connection settings and backend selection while
-reusing SQL, `.bind()`, and row mapping where supported. This reduces repeated adaptation and maintenance.
-Table migration and differences in database semantics remain the application's responsibility.
+When moving a table between databases, you can change the connection settings and backend selection while
+reusing SQL, `.bind()`, and row mapping where supported. This reduces the code you need to adapt and maintain
+separately for each database. You still manage table migration and account for each database's own semantics.
 
 ## License
 
