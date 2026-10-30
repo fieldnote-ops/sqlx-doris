@@ -19,9 +19,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             format!("_consumer_prepare_{}", std::process::id())
         };
         if cleanup_macro {
-            sqlx_doris::sqlx::raw_sql(sqlx_doris::sqlx::AssertSqlSafe(format!("DROP TABLE {table}")))
-                .execute(db.pool())
-                .await?;
+            sqlx_doris::sqlx::raw_sql(sqlx_doris::sqlx::AssertSqlSafe(format!(
+                "DROP TABLE {table}"
+            )))
+            .execute(db.pool())
+            .await?;
             db.close().await;
             continue;
         }
@@ -67,9 +69,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .rows_affected(),
             1
         );
-        let rows: Vec<(i64, i64)> = sqlx_doris::sqlx::query_as(sqlx_doris::sqlx::AssertSqlSafe(format!(
-            "SELECT id,v FROM {table} ORDER BY id"
-        )))
+        let rows: Vec<(i64, i64)> = sqlx_doris::sqlx::query_as(sqlx_doris::sqlx::AssertSqlSafe(
+            format!("SELECT id,v FROM {table} ORDER BY id"),
+        ))
         .fetch_all(&mut *connection)
         .await?;
         assert_eq!(rows, [(1, 3), (1, 3), (1, 3), (1, 3), (2, 6)]);
@@ -79,7 +81,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 passed; exactly five stored rows"
         );
         // Native Transaction has the application's own SQLx MySql identity.
-        let mut tx: sqlx_doris::sqlx::Transaction<'_, sqlx_doris::sqlx::MySql> = db.pool().begin().await?;
+        let mut tx: sqlx_doris::sqlx::Transaction<'_, sqlx_doris::sqlx::MySql> =
+            db.pool().begin().await?;
         sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "INSERT INTO {table} VALUES (?,?)"
         )))
@@ -121,9 +124,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "{backend:?}: native application Transaction bind/text mix and \
                 commit/rollback/drop passed"
         );
-        sqlx_doris::sqlx::raw_sql(sqlx_doris::sqlx::AssertSqlSafe(format!("DROP TABLE {table}")))
-            .execute(db.pool())
-            .await?;
+        sqlx_doris::sqlx::raw_sql(sqlx_doris::sqlx::AssertSqlSafe(format!(
+            "DROP TABLE {table}"
+        )))
+        .execute(db.pool())
+        .await?;
         let binary_table = format!("{table}_binary_time");
         let columns = if backend == Backend::Doris {
             "(id BIGINT,b STRING,t VARCHAR(64)) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) \
@@ -145,7 +150,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         let bytes: Vec<u8> = (0..=255).collect();
         for action in ["commit", "rollback", "drop"] {
-            let mut tx: sqlx_doris::sqlx::Transaction<'_, sqlx_doris::sqlx::MySql> = db.pool().begin().await?;
+            let mut tx: sqlx_doris::sqlx::Transaction<'_, sqlx_doris::sqlx::MySql> =
+                db.pool().begin().await?;
             sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
                 "INSERT INTO {binary_table} VALUES(?,?,?)"
             )))
@@ -196,17 +202,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "{backend:?}: application's native WHERE b=? and byte bind preserved raw \
                 bytes and signed TIME without manual HEX"
         );
-        let included: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
-            "SELECT id FROM {binary_table} WHERE b IN(?,?) ORDER BY id"
-        )))
+        let included: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(
+            format!("SELECT id FROM {binary_table} WHERE b IN(?,?) ORDER BY id"),
+        ))
         .bind(&bytes)
         .bind(None::<Vec<u8>>)
         .fetch_all(db.pool())
         .await?;
         assert_eq!(included, [1]);
-        let unknown: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
-            "SELECT id FROM {binary_table} WHERE b NOT IN(?,NULL) ORDER BY id"
-        )))
+        let unknown: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(
+            format!("SELECT id FROM {binary_table} WHERE b NOT IN(?,NULL) ORDER BY id"),
+        ))
         .bind(&bytes)
         .fetch_all(db.pool())
         .await?;
@@ -221,9 +227,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        let actual: Vec<u8> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
-            "SELECT b FROM {binary_table} WHERE b IN(?)"
-        )))
+        let actual: Vec<u8> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(
+            format!("SELECT b FROM {binary_table} WHERE b IN(?)"),
+        ))
         .bind(&replacement)
         .fetch_one(db.pool())
         .await?;
@@ -255,23 +261,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        let different: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
-            "SELECT id FROM {binary_table} WHERE b<>? ORDER BY id"
-        )))
+        let different: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(
+            format!("SELECT id FROM {binary_table} WHERE b<>? ORDER BY id"),
+        ))
         .bind(&replacement)
         .fetch_all(db.pool())
         .await?;
         assert_eq!(different, [2]);
-        let unknown: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
-            "SELECT id FROM {binary_table} WHERE b!=?"
-        )))
+        let unknown: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(
+            format!("SELECT id FROM {binary_table} WHERE b!=?"),
+        ))
         .bind(None::<Vec<u8>>)
         .fetch_all(db.pool())
         .await?;
         assert!(unknown.is_empty());
-        let only_null: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
-            "SELECT id FROM {binary_table} WHERE ?<=>b"
-        )))
+        let only_null: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(
+            format!("SELECT id FROM {binary_table} WHERE ?<=>b"),
+        ))
         .bind(None::<Vec<u8>>)
         .fetch_all(db.pool())
         .await?;
@@ -286,9 +292,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        let actual: Vec<u8> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
-            "SELECT b FROM {binary_table} WHERE b<=>?"
-        )))
+        let actual: Vec<u8> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(
+            format!("SELECT b FROM {binary_table} WHERE b<=>?"),
+        ))
         .bind(&compare_bytes)
         .fetch_one(db.pool())
         .await?;
@@ -348,9 +354,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .bind(1_i64)
         .execute(db.pool())
         .await?;
-        let got: sqlx_doris::sqlx::mysql::types::MySqlTime = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(
-            format!("SELECT t FROM {binary_table} WHERE id=?"),
-        ))
+        let got: sqlx_doris::sqlx::mysql::types::MySqlTime = sqlx_doris::sqlx::query_scalar(
+            sqlx_doris::sqlx::AssertSqlSafe(format!("SELECT t FROM {binary_table} WHERE id=?")),
+        )
         .bind(1_i64)
         .fetch_one(db.pool())
         .await?;
@@ -386,18 +392,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .execute(db.pool())
         .await?;
         for persistent in [true, true, false] {
-            let ids: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
-                "SELECT id FROM {binary_table} WHERE t IN(?,?) ORDER BY id"
-            )))
+            let ids: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(
+                format!("SELECT id FROM {binary_table} WHERE t IN(?,?) ORDER BY id"),
+            ))
             .bind(negative)
             .bind("+00:00:00.000000")
             .persistent(persistent)
             .fetch_all(db.pool())
             .await?;
             assert_eq!(ids, [1, 2]);
-            let ids: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
-                "SELECT id FROM {binary_table} WHERE t NOT IN(?,?,NULL) ORDER BY id"
-            )))
+            let ids: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(
+                format!("SELECT id FROM {binary_table} WHERE t NOT IN(?,?,NULL) ORDER BY id"),
+            ))
             .bind(zero)
             .bind("00:00:00")
             .persistent(persistent)
@@ -410,18 +416,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 mixed strings, NULL and cache"
         );
         for persistent in [true, true, false] {
-            let ids: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
-                "SELECT id FROM {binary_table} WHERE b>=? AND b<? ORDER BY id"
-            )))
+            let ids: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(
+                format!("SELECT id FROM {binary_table} WHERE b>=? AND b<? ORDER BY id"),
+            ))
             .bind(Vec::<u8>::new())
             .bind(vec![255_u8, 255, 255])
             .persistent(persistent)
             .fetch_all(db.pool())
             .await?;
             assert_eq!(ids, [1, 2]);
-            let ids: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
-                "SELECT id FROM {binary_table} WHERE b>? ORDER BY id"
-            )))
+            let ids: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(
+                format!("SELECT id FROM {binary_table} WHERE b>? ORDER BY id"),
+            ))
             .bind(None::<Vec<u8>>)
             .persistent(persistent)
             .fetch_all(db.pool())
@@ -433,18 +439,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 NULL and cache"
         );
         for persistent in [true, true, false] {
-            let ids: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
-                "SELECT id FROM {binary_table} WHERE b BETWEEN ? AND ? ORDER BY id"
-            )))
+            let ids: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(
+                format!("SELECT id FROM {binary_table} WHERE b BETWEEN ? AND ? ORDER BY id"),
+            ))
             .bind(Vec::<u8>::new())
             .bind(vec![255_u8, 255, 255])
             .persistent(persistent)
             .fetch_all(db.pool())
             .await?;
             assert_eq!(ids, [1, 2]);
-            let ids: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
-                "SELECT id FROM {binary_table} WHERE b NOT BETWEEN ? AND ? ORDER BY id"
-            )))
+            let ids: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(
+                format!("SELECT id FROM {binary_table} WHERE b NOT BETWEEN ? AND ? ORDER BY id"),
+            ))
             .bind(None::<Vec<u8>>)
             .bind(Vec::<u8>::new())
             .persistent(persistent)
@@ -456,9 +462,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "{backend:?}: application's original BETWEEN/NOT BETWEEN preserved inclusive \
                 boundaries, NULL false-range truth and cache"
         );
-        sqlx_doris::sqlx::raw_sql(sqlx_doris::sqlx::AssertSqlSafe(format!("DROP TABLE {binary_table}")))
-            .execute(db.pool())
-            .await?;
+        sqlx_doris::sqlx::raw_sql(sqlx_doris::sqlx::AssertSqlSafe(format!(
+            "DROP TABLE {binary_table}"
+        )))
+        .execute(db.pool())
+        .await?;
         println!(
             "{backend:?}: application's native Vec<u8>/MySqlTime binds preserved binary \
                 bytes, signed microseconds and transaction outcomes"
@@ -478,7 +486,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .execute(db.pool())
         .await?;
         for persistent in [true, true, false] {
-            let mut tx: sqlx_doris::sqlx::Transaction<'_, sqlx_doris::sqlx::MySql> = db.pool().begin().await?;
+            let mut tx: sqlx_doris::sqlx::Transaction<'_, sqlx_doris::sqlx::MySql> =
+                db.pool().begin().await?;
             sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
                 "INSERT INTO {defaults_table}(title,id,n) VALUE(?,?,DEFAULT),(NULL,?,NULL)"
             )))
@@ -538,9 +547,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     1062
                 );
             }
-            let value: i64 = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
-                "SELECT n FROM {defaults_table} WHERE id=?"
-            )))
+            let value: i64 = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(
+                format!("SELECT n FROM {defaults_table} WHERE id=?"),
+            ))
             .bind(1_i64)
             .fetch_one(db.pool())
             .await?;
