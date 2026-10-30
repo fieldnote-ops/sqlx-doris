@@ -1,0 +1,358 @@
+--- a/sqlx-mysql/src/connection/establish.rs
++++ b/sqlx-mysql/src/connection/establish.rs
+@@ -26,6 +26,7 @@
+             inner: Box::new(MySqlConnectionInner {
+                 stream,
+                 transaction_depth: 0,
++                doris_transaction_compatibility: options.doris_transaction_compatibility,
+                 status_flags: Default::default(),
+                 cache_statement: StatementCache::new(options.statement_cache_capacity),
+                 log_settings: options.log_settings.clone(),
+--- a/sqlx-mysql/src/connection/mod.rs
++++ b/sqlx-mysql/src/connection/mod.rs
+@@ -43,7 +43,8 @@
+ 
+     // transaction status
+     pub(crate) transaction_depth: usize,
+-    status_flags: Status,
++    pub(crate) doris_transaction_compatibility: bool,
++    pub(crate) status_flags: Status,
+ 
+     // cache by query string to the statement id and metadata
+     cache_statement: StatementCache<(u32, MySqlStatementMetadata)>,
+@@ -71,6 +72,9 @@
+     type Options = MySqlConnectOptions;
+ 
+     async fn close(mut self) -> Result<(), Error> {
++        if self.inner.stream.doris_transaction_retired {
++            return Ok(()); // Drop the socket; do not negotiate TLS on uncertain state.
++        }
+         self.inner.stream.send_packet(Quit).await?;
+         self.inner.stream.shutdown().await?;
+ 
+@@ -78,6 +82,9 @@
+     }
+ 
+     async fn close_hard(mut self) -> Result<(), Error> {
++        if self.inner.stream.doris_transaction_retired {
++            return Ok(());
++        }
+         self.inner.stream.shutdown().await?;
+         Ok(())
+     }
+--- a/sqlx-mysql/src/connection/stream.rs
++++ b/sqlx-mysql/src/connection/stream.rs
+@@ -19,6 +19,9 @@
+     pub(crate) sequence_id: u8,
+     pub(crate) waiting: VecDeque<Waiting>,
+     pub(crate) is_tls: bool,
++    // Also marks an interrupted Doris control command. Such a connection must
++    // never carry another user query or return to the pool as healthy.
++    pub(crate) doris_transaction_retired: bool,
+ }
+ 
+ #[derive(Debug, PartialEq, Eq)]
+@@ -56,10 +59,16 @@
+             sequence_id: 0,
+             socket: BufferedSocket::new(socket),
+             is_tls: false,
++            doris_transaction_retired: false,
+         }
+     }
+ 
+     pub(crate) async fn wait_until_ready(&mut self) -> Result<(), Error> {
++        if self.doris_transaction_retired {
++            return Err(err_protocol!(
++                "Doris transaction was interrupted or dropped; close this connection"
++            ));
++        }
+         if !self.socket.write_buffer().is_empty() {
+             self.socket.flush().await?;
+         }
+@@ -213,6 +222,7 @@
+             sequence_id: self.sequence_id,
+             waiting: self.waiting,
+             is_tls: self.is_tls,
++            doris_transaction_retired: self.doris_transaction_retired,
+         }
+     }
+ }
+--- a/sqlx-mysql/src/connection/tls.rs
++++ b/sqlx-mysql/src/connection/tls.rs
+@@ -8,6 +8,7 @@
+ use std::collections::VecDeque;
+ 
+ struct MapStream {
++    doris_transaction_retired: bool,
+     server_version: (u16, u16, u16),
+     capabilities: Capabilities,
+     sequence_id: u8,
+@@ -77,6 +78,7 @@
+         stream.socket.into_inner(),
+         tls_config,
+         MapStream {
++            doris_transaction_retired: stream.doris_transaction_retired,
+             server_version: stream.server_version,
+             capabilities: stream.capabilities,
+             sequence_id: stream.sequence_id,
+@@ -91,6 +93,7 @@
+ 
+     async fn with_socket<S: Socket>(self, socket: S) -> Self::Output {
+         MySqlStream {
++            doris_transaction_retired: self.doris_transaction_retired,
+             socket: BufferedSocket::new(Box::new(socket)),
+             server_version: self.server_version,
+             capabilities: self.capabilities,
+--- a/sqlx-mysql/src/options/mod.rs
++++ b/sqlx-mysql/src/options/mod.rs
+@@ -80,6 +80,7 @@
+     pub(crate) no_engine_substitution: bool,
+     pub(crate) timezone: Option<String>,
+     pub(crate) set_names: bool,
++    pub(crate) doris_transaction_compatibility: bool,
+ }
+ 
+ impl Default for MySqlConnectOptions {
+@@ -111,7 +112,25 @@
+             no_engine_substitution: true,
+             timezone: Some(String::from("+00:00")),
+             set_names: true,
++            doris_transaction_compatibility: false,
+         }
++    }
++
++    /// Opt into Doris's top-level write transaction protocol compatibility.
++    ///
++    /// Standard BEGIN must return either IN_TRANS or Doris's PREPARE receipt.
++    /// Savepoints and custom BEGIN statements are unsupported. Interrupted
++    /// control commands and dropped transactions retire the connection; borrowed
++    /// connections must then be closed. Prepared writes still require FE support.
++    /// Disabled by default; this does not identify servers by version strings.
++    pub fn doris_transaction_compatibility(mut self, enabled: bool) -> Self {
++        self.doris_transaction_compatibility = enabled;
++        self
++    }
++
++    /// Whether explicit Doris transaction compatibility is configured.
++    pub fn get_doris_transaction_compatibility(&self) -> bool {
++        self.doris_transaction_compatibility
+     }
+ 
+     /// Sets the name of the host to connect to.
+--- a/sqlx-mysql/src/protocol/response/ok.rs
++++ b/sqlx-mysql/src/protocol/response/ok.rs
+@@ -12,6 +12,8 @@
+     pub last_insert_id: u64,
+     pub status: Status,
+     pub warnings: u16,
++    /// Uninterpreted trailing info; Doris encodes a length-prefixed receipt here.
++    pub info: Bytes,
+ }
+ 
+ impl ProtocolDecode<'_> for OkPacket {
+@@ -42,6 +44,7 @@
+             last_insert_id,
+             status,
+             warnings,
++            info: buf,
+         })
+     }
+ }
+--- a/sqlx-mysql/src/transaction.rs
++++ b/sqlx-mysql/src/transaction.rs
+@@ -3,6 +3,8 @@
+ use crate::connection::Waiting;
+ use crate::error::Error;
+ use crate::executor::Executor;
++use crate::io::MySqlBufExt;
++use crate::protocol::response::{OkPacket, Status};
+ use crate::protocol::text::Query;
+ use crate::{MySql, MySqlConnection};
+ 
+@@ -16,6 +18,30 @@
+ 
+     async fn begin(conn: &mut MySqlConnection, statement: Option<SqlStr>) -> Result<(), Error> {
+         let depth = conn.inner.transaction_depth;
++
++        if conn.inner.doris_transaction_compatibility {
++            if depth != 0 {
++                // SQLx's failed child Transaction is dropped immediately. Retire
++                // the entire unsupported nesting attempt so the parent cannot
++                // report a successful commit after child-drop cleanup.
++                conn.inner.stream.doris_transaction_retired = true;
++                return Err(err_protocol!(
++                    "Doris savepoints are unsupported; the outer transaction must be closed"
++                ));
++            }
++            if statement.is_some() {
++                return Err(err_protocol!(
++                    "Doris transaction compatibility requires standard BEGIN"
++                ));
++            }
++            let ok = doris_control(conn, "BEGIN").await?;
++            if !doris_begin_acknowledged(&ok) {
++                conn.inner.stream.doris_transaction_retired = true;
++                return Err(Error::BeginFailed);
++            }
++            conn.inner.transaction_depth = 1;
++            return Ok(());
++        }
+ 
+         let statement = match statement {
+             // custom `BEGIN` statements are not allowed if we're already in a transaction
+@@ -34,6 +60,11 @@
+     }
+ 
+     async fn commit(conn: &mut MySqlConnection) -> Result<(), Error> {
++        if conn.inner.doris_transaction_compatibility {
++            doris_control(conn, "COMMIT").await?;
++            conn.inner.transaction_depth = 0;
++            return Ok(());
++        }
+         let depth = conn.inner.transaction_depth;
+ 
+         if depth > 0 {
+@@ -45,6 +76,11 @@
+     }
+ 
+     async fn rollback(conn: &mut MySqlConnection) -> Result<(), Error> {
++        if conn.inner.doris_transaction_compatibility {
++            doris_control(conn, "ROLLBACK").await?;
++            conn.inner.transaction_depth = 0;
++            return Ok(());
++        }
+         let depth = conn.inner.transaction_depth;
+ 
+         if depth > 0 {
+@@ -57,6 +93,17 @@
+ 
+     fn start_rollback(conn: &mut MySqlConnection) {
+         let depth = conn.inner.transaction_depth;
++
++        if conn.inner.doris_transaction_compatibility {
++            // Closing a Doris session aborts its unfinished transaction. Native
++            // pool return always pings, which rejects this retired connection.
++            // No control or write is replayed after an uncertain response.
++            if depth > 0 {
++                conn.inner.stream.doris_transaction_retired = true;
++                conn.inner.transaction_depth = 0;
++            }
++            return;
++        }
+ 
+         if depth > 0 {
+             conn.inner.stream.waiting.push_back(Waiting::Result);
+@@ -74,3 +121,113 @@
+         conn.inner.transaction_depth
+     }
+ }
++
++async fn doris_control(conn: &mut MySqlConnection, sql: &'static str) -> Result<OkPacket, Error> {
++    if !conn.inner.stream.waiting.is_empty() || !conn.inner.stream.write_buffer().is_empty() {
++        conn.inner.stream.doris_transaction_retired = true;
++        return Err(err_protocol!(
++            "Doris transaction has an unfinished query; close this connection"
++        ));
++    }
++    conn.inner.stream.wait_until_ready().await?;
++    // Set before the first send await. Cancellation or any error leaves the
++    // connection retired, including BEGIN before depth has been incremented.
++    conn.inner.stream.doris_transaction_retired = true;
++    conn.inner.stream.waiting.push_back(Waiting::Result);
++    conn.inner.stream.send_packet(Query(sql)).await?;
++    let ok = conn.inner.stream.recv_ok().await?;
++    if ok.status.contains(Status::SERVER_MORE_RESULTS_EXISTS) {
++        return Err(err_protocol!(
++            "unexpected multiple results for Doris transaction control"
++        ));
++    }
++    conn.inner.status_flags = ok.status;
++    conn.inner.stream.waiting.pop_front();
++    conn.inner.stream.doris_transaction_retired = false;
++    Ok(ok)
++}
++
++fn doris_begin_acknowledged(ok: &OkPacket) -> bool {
++    if ok.status.contains(Status::SERVER_STATUS_IN_TRANS) {
++        return true;
++    }
++    let mut info = ok.info.clone();
++    let Ok(length) = info.get_uint_lenenc() else {
++        return false;
++    };
++    if usize::try_from(length).ok() != Some(info.len()) {
++        return false;
++    }
++    let Ok(message) = std::str::from_utf8(&info) else {
++        return false;
++    };
++    let Some(label) = message
++        .strip_prefix("{'label':'txn_insert_")
++        .and_then(|s| s.strip_suffix("', 'status':'PREPARE', 'txnId':''}"))
++    else {
++        return false;
++    };
++    !label.is_empty()
++        && label
++            .bytes()
++            .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
++}
++
++#[cfg(test)]
++mod doris_tests {
++    use super::*;
++    use crate::io::ProtocolDecode;
++    use crate::MySqlConnectOptions;
++    use bytes::Bytes;
++
++    fn receipt(message: &[u8]) -> OkPacket {
++        let mut packet = vec![0, 0, 0, 0, 0, 0, 0];
++        packet.push(message.len() as u8);
++        packet.extend_from_slice(message);
++        OkPacket::decode(Bytes::from(packet)).unwrap()
++    }
++
++    #[test]
++    fn doris_option_is_explicit_and_defaults_off() {
++        assert!(!MySqlConnectOptions::new().get_doris_transaction_compatibility());
++        assert!(MySqlConnectOptions::new()
++            .doris_transaction_compatibility(true)
++            .get_doris_transaction_compatibility());
++    }
++
++    #[test]
++    fn missing_status_requires_exact_doris_begin_receipt() {
++        assert!(doris_begin_acknowledged(&receipt(
++            b"{'label':'txn_insert_ab-cd', 'status':'PREPARE', 'txnId':''}"
++        )));
++        for message in [
++            b"".as_slice(),
++            b"OK",
++            b"{'label':'txn_insert_ab-cd', 'status':'VISIBLE', 'txnId':''}",
++            b"{'label':'txn_insert_', 'status':'PREPARE', 'txnId':''}",
++        ] {
++            assert!(!doris_begin_acknowledged(&receipt(message)));
++        }
++    }
++
++    #[test]
++    fn normal_mysql_status_is_not_dependent_on_doris_info() {
++        let mut ok = receipt(b"");
++        ok.status = Status::SERVER_STATUS_IN_TRANS;
++        assert!(doris_begin_acknowledged(&ok));
++    }
++
++    #[test]
++    fn malformed_doris_info_is_rejected_without_panicking() {
++        let mut ok = receipt(b"{'label':'txn_insert_ab-cd', 'status':'PREPARE', 'txnId':''}");
++        let complete = ok.info.clone();
++        for length in 0..complete.len() {
++            ok.info = complete.slice(..length);
++            assert!(!doris_begin_acknowledged(&ok));
++        }
++        for info in [b"\xfc".as_slice(), b"\xff", b"\x01\xff", b"\x00\x00"] {
++            ok.info = Bytes::copy_from_slice(info);
++            assert!(!doris_begin_acknowledged(&ok));
++        }
++    }
++}

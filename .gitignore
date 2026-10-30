@@ -1,0 +1,13 @@
+.cargo/
+target/
+**/__pycache__/
+.sqlx/
+.venv/
+.pytest_cache/
+/artifacts/
+/dist/
+.DS_Store
+.env
+.env.*
+!.env.example
+*.log

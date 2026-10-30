@@ -1,0 +1,229 @@
+#!/usr/bin/env python3
+"""Run exactly the same native MySQL contracts against original SQLx and companion."""
+from datetime import datetime
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import re
+import shutil
+import subprocess
+import sys
+
+project = Path(__file__).resolve().parents[1]
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    os.execv(
+        str(project / "scripts/dev"),
+        [
+            str(project / "scripts/dev"),
+            sys.executable,
+            "-B",
+            str(Path(__file__).resolve()),
+            *sys.argv[1:],
+        ],
+    )
+os.chdir(project)
+if len(sys.argv) != 1:
+    raise SystemExit("Usage: scripts/test-mysql-regression (requires MYSQL_TEST_URL)")
+if not os.environ.get("MYSQL_TEST_URL"):
+    raise SystemExit("MYSQL_TEST_URL required; no skipped live test is accepted")
+if os.environ.get("CARGO_BUILD_TARGET"):
+    raise SystemExit("test-mysql-regression runs on the host; unset CARGO_BUILD_TARGET")
+root = Path(os.environ["SQLX_DORIS_BUILD_ROOT"])
+run = (
+    Path(os.environ["SQLX_DORIS_ARTIFACTS_DIR"])
+    / "mysql-regression"
+    / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+)
+run.mkdir(parents=True)
+sys.path.insert(0, str(project / "tools"))
+from upstream_sqlx import verify, sqlx_features, sqlx_dependencies
+from mysql_regression_audit import verify_log
+
+sha = lambda p: hashlib.sha256(Path(p).read_bytes()).hexdigest()
+shared = project / "tests/mysql-regression/tests/mysql_regression.rs"
+expected = re.findall(
+    r"#\[tokio::test\].*?async fn ([a-zA-Z0-9_]+)\(", shared.read_text(), re.S
+)
+if len(expected) != 14 or len(set(expected)) != 14:
+    raise SystemExit(
+        "review the declared fourteen-contract suite before changing scope"
+    )
+summary = {
+    "passed": False,
+    "execution": "native developer host",
+    "host": platform.platform(),
+    "architecture": platform.machine(),
+    "cases_per_graph": expected,
+    "profiles": {},
+    "scope": "shared MySQL core regression, not all SDK/Doris contracts or performance",
+}
+print(f"MySQL regression evidence: {run}", flush=True)
+
+
+def command(args, log):
+    with (run / log).open("w") as output:
+        subprocess.run(
+            args, check=True, stdout=output, stderr=subprocess.STDOUT, timeout=600
+        )
+
+
+try:
+    command([str(project / "scripts/check-sqlx-patch")], "patch.log")
+
+    official_manifest = project / "tests/mysql-upstream/Cargo.toml"
+    graphs = {}
+    for name, extra in [
+        ("official", ["--manifest-path", str(official_manifest)]),
+        ("companion", []),
+    ]:
+        graphs[name] = json.loads(
+            subprocess.check_output(
+                [
+                    "cargo",
+                    "metadata",
+                    "--locked",
+                    "--offline",
+                    "--format-version",
+                    "1",
+                    *extra,
+                ],
+                text=True,
+            )
+        )
+        (run / (name + "-metadata.json")).write_text(
+            json.dumps(graphs[name], indent=2) + "\n"
+        )
+    checksum = json.loads((project / "patches/sqlx-mysql-provenance.json").read_text())[
+        "registry_checksum"
+    ]
+    original = verify(
+        graphs["official"],
+        os.environ["CARGO_HOME"],
+        official_manifest.parent / "Cargo.lock",
+        checksum,
+    )
+    try:
+        verify(
+            graphs["companion"],
+            os.environ["CARGO_HOME"],
+            official_manifest.parent / "Cargo.lock",
+            checksum,
+        )
+    except ValueError as error:
+        negative = str(error)
+    else:
+        raise ValueError("candidate accepted as original SQLx")
+    if sqlx_features(graphs["official"]) != sqlx_features(
+        graphs["companion"]
+    ) or sqlx_dependencies(graphs["official"]) != sqlx_dependencies(
+        graphs["companion"]
+    ):
+        raise ValueError("SQLx feature or dependency edges differ")
+    candidate_mysql = [
+        p for p in graphs["companion"]["packages"] if p["name"] == "sqlx-mysql"
+    ]
+    if (
+        len(candidate_mysql) != 1
+        or candidate_mysql[0]["source"] is not None
+        or Path(candidate_mysql[0]["manifest_path"]).resolve()
+        != project / "patches/sqlx-mysql/Cargo.toml"
+    ):
+        raise ValueError("one reviewed native MySql identity required")
+    summary["provenance"] = {
+        "original_sqlx_packages": original,
+        "candidate_rejected_as_original": negative,
+    }
+    paths = [
+        "Cargo.toml",
+        "Cargo.lock",
+        "tests/mysql-regression/Cargo.toml",
+        "tests/mysql-upstream/Cargo.toml",
+        "tests/mysql-upstream/Cargo.lock",
+        "tests/mysql-regression/tests/mysql_regression.rs",
+        "tests/mysql-regression/tests/support/mysql_reply_loss.rs",
+        "scripts/test-mysql-regression",
+        "tools/mysql_regression_audit.py",
+        "tools/upstream_sqlx.py",
+        "patches/sqlx-mysql-provenance.json",
+    ]
+    for folder in ["crates/sqlx-doris/src", "patches/sqlx-mysql/src"]:
+        paths.extend(
+            str(p.relative_to(project)) for p in (project / folder).rglob("*.rs")
+        )
+    sources = {name: sha(project / name) for name in sorted(paths)}
+    for name in sources:
+        dest = run / "source" / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(project / name, dest)
+    summary["source_sha256"] = sources
+    for name, extra in [
+        (
+            "official",
+            [
+                "--manifest-path",
+                str(official_manifest),
+                "--target-dir",
+                str(root / "target-clean-upstream"),
+            ],
+        ),
+        ("companion", ["-p", "sqlx-doris-mysql-regression"]),
+    ]:
+        command(
+            [
+                "cargo",
+                "test",
+                "--locked",
+                "--offline",
+                *extra,
+                "--test",
+                "mysql_regression",
+                "--no-run",
+                "--message-format=json",
+            ],
+            name + "-build.jsonl",
+        )
+        artifacts = [
+            json.loads(line)
+            for line in (run / (name + "-build.jsonl")).read_text().splitlines()
+            if line.startswith("{")
+        ]
+        executables = [
+            Path(x["executable"])
+            for x in artifacts
+            if x.get("reason") == "compiler-artifact"
+            and x.get("target", {}).get("name") == "mysql_regression"
+            and x.get("executable")
+        ]
+        if len(executables) != 1 or not executables[0].resolve().is_relative_to(
+            root.resolve()
+        ):
+            raise ValueError("one external native test executable required")
+        binary = executables[0]
+        binary_hash = sha(binary)
+        shutil.copyfile(binary, run / (name + "-test-binary"))
+        command(
+            [str(binary), "--ignored", "--test-threads=1", "--show-output"],
+            name + "-tests.log",
+        )
+        cases = verify_log(
+            (run / (name + "-tests.log")).read_text(), expected, name == "official"
+        )
+        if sha(binary) != binary_hash or any(
+            sha(project / n) != h for n, h in sources.items()
+        ):
+            raise ValueError("sources or binary changed during execution")
+        summary["profiles"][name] = {
+            "passed": True,
+            "cases": cases,
+            "binary_sha256": binary_hash,
+        }
+        print(f"{name}: {len(cases)}/{len(expected)} passed", flush=True)
+    summary["passed"] = True
+except (OSError, ValueError, subprocess.SubprocessError) as error:
+    summary["error"] = str(error)
+finally:
+    (run / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+print(f"Shared MySQL regression passed={summary['passed']}; {run}")
+raise SystemExit(0 if summary["passed"] else 1)

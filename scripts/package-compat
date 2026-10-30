@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""Bundle the current SDK .crate and its required SQLx companion source."""
+import hashlib
+import gzip
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+
+project = Path(__file__).resolve().parents[1]
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    os.execv(
+        str(project / "scripts/dev"),
+        [
+            str(project / "scripts/dev"),
+            sys.executable,
+            "-B",
+            str(Path(__file__).resolve()),
+        ],
+    )
+subprocess.run([str(project / "scripts/check-sqlx-patch")], check=True)
+packages = Path(os.environ["CARGO_TARGET_DIR"]) / "package"
+sdk = packages / "sqlx-doris-0.1.0.crate"
+archive = packages / "sqlx-doris-compat-0.1.0.tar.gz"
+with tempfile.TemporaryDirectory(prefix="compat-bundle-") as temporary:
+    stage = Path(temporary) / "sqlx-doris-compat-0.1.0"
+    stage.mkdir()
+    with tarfile.open(sdk) as source:
+        source.extractall(stage / "sdk", filter="data")
+    unpacked = stage / "sdk/sqlx-doris-0.1.0"
+    # Refuse a stale archive instead of shipping a mixed-source bundle.
+    for path in (project / "crates/sqlx-doris").rglob("*"):
+        if path.is_file() and (
+            path.suffix in (".rs", ".py") or path.name in ("README.md", "LICENSE")
+        ):
+            relative = path.relative_to(project / "crates/sqlx-doris")
+            if path.read_bytes() != (unpacked / relative).read_bytes():
+                raise SystemExit(f"stale SDK package: {relative}; run scripts/check")
+    (stage / "patches").mkdir()
+    shutil.copytree(project / "patches/sqlx-mysql", stage / "patches/sqlx-mysql")
+    for name in [
+        "README.md",
+        "sqlx-mysql-provenance.json",
+        "prepare-ok.patch",
+        "native-transactions.patch",
+        "safe-bindings.patch",
+    ]:
+        shutil.copy2(project / "patches" / name, stage / "patches" / name)
+    (stage / "README.md").write_text(
+        """# SQLx Doris 0.1 local compatibility bundle
+
+Use paths relative to your application's workspace-root Cargo.toml:
+
+```toml
+[dependencies]
+sqlx-doris = { path = "../sqlx-doris-compat-0.1.0/sdk/sqlx-doris-0.1.0" }
+
+[patch.crates-io]
+sqlx-mysql = { path = "../sqlx-doris-compat-0.1.0/patches/sqlx-mysql" }
+```
+
+The SDK .crate alone does not activate this patch. The root override is required
+for SQLx 0.9.0's short PrepareOk fix and a shared native MySql type. See the SDK
+README and patches/README.md for boundaries and provenance. Not published.
+"""
+    )
+    files = {
+        str(p.relative_to(stage)): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in stage.rglob("*")
+        if p.is_file()
+    }
+    (stage / "SHA256SUMS.json").write_text(json.dumps(files, indent=2) + "\n")
+
+    # Stable tar and gzip metadata make an unchanged delivery byte-reproducible.
+    def normalized(member):
+        member.mtime = 0
+        member.uid = member.gid = 0
+        member.uname = member.gname = ""
+        member.pax_headers = {}
+        member.mode = 0o755 if member.isdir() or member.mode & 0o111 else 0o644
+        return member
+
+    with archive.open("wb") as raw, gzip.GzipFile(
+        filename="", mode="wb", fileobj=raw, mtime=0
+    ) as compressed:
+        with tarfile.open(
+            fileobj=compressed, mode="w", format=tarfile.GNU_FORMAT
+        ) as output:
+            output.add(stage, arcname=stage.name, filter=normalized)
+summary = {
+    "archive": str(archive),
+    "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+    "sdk_crate_sha256": hashlib.sha256(sdk.read_bytes()).hexdigest(),
+    "files": len(files) + 1,
+    "root_cargo_patch_required": True,
+}
+(packages / "sqlx-doris-compat-0.1.0.json").write_text(
+    json.dumps(summary, indent=2) + "\n"
+)
+print(json.dumps(summary, indent=2))

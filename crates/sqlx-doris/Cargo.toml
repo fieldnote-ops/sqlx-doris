@@ -1,0 +1,44 @@
+[package]
+name = "sqlx-doris"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "SQLx MySQL and Apache Doris connections, native types, and operations"
+readme = "README.md"
+keywords = ["sqlx", "doris", "mysql", "database", "async"]
+categories = ["database"]
+include = ["src/**", "examples/**", "tests/**", "README.md", "LICENSE", "Cargo.toml", "Cargo.lock"]
+
+[[example]]
+name = "stream_load"
+required-features = ["stream-load"]
+
+[[example]]
+name = "query_macro"
+required-features = ["macros"]
+
+[[example]]
+name = "doris_query_macro"
+required-features = ["macros"]
+
+[features]
+default = ["stream-load"]
+stream-load = ["dep:reqwest", "dep:uuid", "dep:tokio-util"]
+macros = ["sqlx/macros"]
+
+[dependencies]
+sqlx.workspace = true
+tokio.workspace = true
+bigdecimal.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream"], optional = true }
+uuid = { version = "1", features = ["v4"], optional = true }
+tokio-util = { version = "0.7", features = ["io"], optional = true }
+
+[dev-dependencies]
+tokio.workspace = true
+futures-util = "0.3"

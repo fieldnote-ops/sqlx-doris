@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+"""Generate deterministic Parquet/ORC fixtures; dependencies and output stay external."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+project = Path(__file__).resolve().parents[1]
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    os.execv(
+        str(project / "scripts/dev"),
+        [
+            str(project / "scripts/dev"),
+            sys.executable,
+            "-B",
+            str(Path(__file__).resolve()),
+        ],
+    )
+root = Path(os.environ["SQLX_DORIS_BUILD_ROOT"])
+output = root / "fixtures/stream-load"
+manifest = output / "manifest.json"
+if manifest.is_file():
+    entries = json.loads(manifest.read_text())
+    if entries.get("pyarrow") == "22.0.0" and all(
+        (output / f["name"]).is_file()
+        and hashlib.sha256((output / f["name"]).read_bytes()).hexdigest() == f["sha256"]
+        for f in entries["files"]
+    ):
+        print(f"Verified Parquet/ORC load fixtures at {output}")
+        raise SystemExit(0)
+venv = root / "runtime/fixture-python"
+python = venv / "bin/python"
+if not python.is_file():
+    subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True)
+subprocess.run(
+    [
+        str(python),
+        "-m",
+        "pip",
+        "install",
+        "--only-binary=:all:",
+        "--no-deps",
+        "--disable-pip-version-check",
+        "--cache-dir",
+        str(root / "cache/pip"),
+        "--index-url",
+        "https://pypi.org/simple",
+        "pyarrow==22.0.0",
+    ],
+    check=True,
+)
+output.mkdir(parents=True, exist_ok=True)
+source = """
+import hashlib,json,sys
+from pathlib import Path
+import pyarrow as pa
+import pyarrow.parquet as pq
+import pyarrow.orc as orc
+output=Path(sys.argv[1])
+table=pa.Table.from_pydict({'id':[1,2,3],'name':['中文🙂 \\" \\\\ \\n \\0',None,'']},schema=pa.schema([pa.field('id',pa.int64(),nullable=False),pa.field('name',pa.string())]))
+pq.write_table(table,output/'sample.parquet',compression='NONE',version='2.6')
+orc.write_table(table,output/'sample.orc',compression='uncompressed')
+files=[dict(name=f.name,bytes=f.stat().st_size,sha256=hashlib.sha256(f.read_bytes()).hexdigest()) for f in [output/'sample.parquet',output/'sample.orc']]
+(output/'manifest.json').write_text(json.dumps({'pyarrow':pa.__version__,'rows':table.to_pylist(),'files':files},ensure_ascii=False,indent=2)+'\\n')
+print(json.dumps(files))
+"""
+subprocess.run([str(python), "-B", "-c", source, str(output)], check=True)

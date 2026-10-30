@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Reconstruct reviewed SQLx sources and verify one exact current delivery pair."""
+import argparse
+from datetime import datetime
+import json
+import os
+from pathlib import Path
+import sys
+import tarfile
+import tomllib
+
+project = Path(__file__).resolve().parents[1]
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    os.execv(
+        str(project / "scripts/dev"),
+        [
+            str(project / "scripts/dev"),
+            sys.executable,
+            "-B",
+            str(Path(__file__).resolve()),
+            *sys.argv[1:],
+        ],
+    )
+sys.path.insert(0, str(project / "tools"))
+from delivery_verification import reconstruct, sha, verify_bundle, verify_sdk
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--sdk", type=Path)
+parser.add_argument("--bundle", type=Path)
+parser.add_argument("--output", type=Path)
+args = parser.parse_args()
+root = Path(os.environ["SQLX_DORIS_BUILD_ROOT"]).resolve()
+version = tomllib.loads((project / "crates/sqlx-doris/Cargo.toml").read_text())[
+    "package"
+]["version"]
+packages = Path(os.environ["CARGO_TARGET_DIR"]) / "package"
+sdk = args.sdk or packages / f"sqlx-doris-{version}.crate"
+bundle = args.bundle or packages / f"sqlx-doris-compat-{version}.tar.gz"
+output = args.output or Path(
+    os.environ["SQLX_DORIS_ARTIFACTS_DIR"]
+) / "delivery-verification" / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+for path in (sdk, bundle, output):
+    if not path.resolve().is_relative_to(root):
+        parser.error(
+            "packages, temporary work and evidence must remain on the selected external build root"
+        )
+if not sdk.is_file() or not bundle.is_file():
+    parser.error("exact SDK/bundle files required; run scripts/check first")
+output.mkdir(parents=True, exist_ok=True)
+summary = dict(
+    passed=False,
+    cargo_lock_sha256=sha(project / "Cargo.lock"),
+    scope="source reconstruction and package identity; not live/platform/performance/release certification",
+)
+try:
+    summary["patch_chain"] = reconstruct(project, root, output)
+    sdk_files, summary["sdk"] = verify_sdk(project, sdk, version)
+    summary["bundle"] = verify_bundle(project, bundle, sdk_files, version)
+    summary["passed"] = True
+except (OSError, ValueError, KeyError, tarfile.TarError) as error:
+    summary["error"] = str(error)
+finally:
+    (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+print(json.dumps(summary, indent=2))
+print(f"Delivery verification evidence: {output}")
+if not summary["passed"]:
+    raise SystemExit(1)

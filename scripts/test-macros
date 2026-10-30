@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+"""Verify both online origins, isolated external offline caches, and missing data."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+project = Path(__file__).resolve().parents[1]
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    os.execv(
+        str(project / "scripts/dev"),
+        [
+            str(project / "scripts/dev"),
+            sys.executable,
+            "-B",
+            str(Path(__file__).resolve()),
+        ],
+    )
+os.chdir(project)
+base_env = os.environ.copy()
+for backend in ["MYSQL", "DORIS"]:
+    base_env[f"{backend}_URL"] = base_env[f"{backend}_TEST_URL"]
+root = Path(base_env["SQLX_DORIS_BUILD_ROOT"])
+artifacts = Path(base_env["SQLX_DORIS_ARTIFACTS_DIR"])
+version = base_env.get("DORIS_TEST_VERSION", "4.1.5")
+evidence = []
+
+with (artifacts / "macros.log").open("w") as log:
+
+    def run(label, example, env):
+        (project / f"crates/sqlx-doris/examples/{example}.rs").touch()
+        command = [
+            "cargo",
+            "run",
+            "--locked",
+            "-p",
+            "sqlx-doris",
+            "--features",
+            "macros",
+            "--example",
+            example,
+        ]
+        print(label, flush=True)
+        log.write(label + "\n")
+        process = subprocess.Popen(
+            command,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        for line in process.stdout:
+            print(line, end="", flush=True)
+            log.write(line)
+        code = process.wait()
+        log.flush()
+        if code:
+            raise SystemExit(code)
+        evidence.append(label)
+
+    for backend in ["MYSQL", "DORIS"]:
+        profile = "mysql-8.4.13" if backend == "MYSQL" else "doris-" + version
+        cache = root / "fixtures/sqlx-metadata" / profile
+        cache.mkdir(parents=True, exist_ok=True)
+        env = base_env.copy()
+        env.update(
+            DATABASE_URL=env[f"{backend}_TEST_URL"],
+            SQLX_OFFLINE="false",
+            SQLX_OFFLINE_DIR=str(cache),
+        )
+        examples = (
+            ["query_macro"]
+            if backend == "MYSQL"
+            else ["query_macro", "doris_query_macro"]
+        )
+        for example in examples:
+            run(f"online {profile} {example}", example, env)
+        files = sorted(cache.glob("query-*.json"))
+        if not files:
+            raise SystemExit("online macros did not save metadata")
+        queries = []
+        for path in files:
+            data = json.loads(path.read_text())
+            if data["db_name"] != "MySQL":
+                raise SystemExit("unexpected offline driver identity")
+            if data["hash"] != hashlib.sha256(data["query"].encode()).hexdigest():
+                raise SystemExit("unexpected query hash")
+            queries.append(
+                {
+                    "path": path.name,
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                }
+            )
+        (cache / "origin.json").write_text(
+            json.dumps(
+                {"profile": profile, "sqlx": "0.9.0", "queries": queries}, indent=2
+            )
+            + "\n"
+        )
+        env.pop("DATABASE_URL", None)
+        env["SQLX_OFFLINE"] = "true"
+        for example in examples:
+            run(f"offline {profile} {example}", example, env)
+
+    with tempfile.TemporaryDirectory(prefix="macro-cache-missing-") as empty:
+        env = base_env.copy()
+        env.pop("DATABASE_URL", None)
+        env.update(SQLX_OFFLINE="true", SQLX_OFFLINE_DIR=empty)
+        (project / "crates/sqlx-doris/examples/query_macro.rs").touch()
+        result = subprocess.run(
+            [
+                "cargo",
+                "check",
+                "--locked",
+                "-p",
+                "sqlx-doris",
+                "--features",
+                "macros",
+                "--example",
+                "query_macro",
+            ],
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        (artifacts / "macro-missing-cache.log").write_text(result.stdout)
+        if (
+            result.returncode == 0
+            or "there is no cached data for this query" not in result.stdout
+        ):
+            raise SystemExit(
+                "missing offline metadata did not fail for the expected reason"
+            )
+        print("missing offline metadata rejected as expected", flush=True)
+        log.write("missing offline metadata rejected as expected\n")
+        evidence.append("missing offline metadata rejected")
+    # Leave a successful final artifact after the deliberate negative build.
+    env["SQLX_OFFLINE_DIR"] = str(
+        root / "fixtures/sqlx-metadata" / ("doris-" + version)
+    )
+    run("offline final shared macro", "query_macro", env)
+
+(artifacts / "macro-validation-summary.json").write_text(
+    json.dumps(
+        {
+            "doris": version,
+            "passed": evidence,
+            "offline_caches_external": True,
+            "database_url_unset_during_offline_compilation": True,
+        },
+        indent=2,
+    )
+    + "\n"
+)
+print(f"Macro online/offline validation passed; log: {artifacts/'macros.log'}")

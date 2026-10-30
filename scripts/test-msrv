@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""Install/use the MSRV in external RUSTUP_HOME without changing global Rust."""
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+project = Path(__file__).resolve().parents[1]
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    os.execv(
+        str(project / "scripts/dev"),
+        [
+            str(project / "scripts/dev"),
+            sys.executable,
+            "-B",
+            str(Path(__file__).resolve()),
+        ],
+    )
+os.chdir(project)
+root = Path(os.environ["SQLX_DORIS_BUILD_ROOT"])
+os.environ["RUSTUP_HOME"] = str(root / "runtime/rustup")
+if subprocess.run(
+    ["rustup", "run", "1.94.0", "rustc", "--version"], capture_output=True
+).returncode:
+    subprocess.run(
+        [
+            "rustup",
+            "toolchain",
+            "install",
+            "1.94.0",
+            "--profile",
+            "minimal",
+            "--no-self-update",
+        ],
+        check=True,
+    )
+prefix = ["rustup", "run", "1.94.0", "cargo"]
+target = ["--target-dir", str(root / "target-msrv-clean")]
+commands = [
+    [*prefix, "test", "--locked", "--workspace", *target],
+    [*prefix, "test", "--locked", "-p", "sqlx-mysql", "--lib", *target],
+    [
+        *prefix,
+        "check",
+        "--locked",
+        "-p",
+        "sqlx-doris",
+        "--no-default-features",
+        "--all-targets",
+        *target,
+    ],
+    [
+        *prefix,
+        "check",
+        "--locked",
+        "-p",
+        "sqlx-doris",
+        "--all-features",
+        "--lib",
+        *target,
+    ],
+]
+log = Path(os.environ["SQLX_DORIS_ARTIFACTS_DIR"]) / "msrv.log"
+with log.open("w") as output:
+    for command in commands:
+        process = subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        )
+        for line in process.stdout:
+            print(line, end="", flush=True)
+            output.write(line)
+        code = process.wait()
+        output.flush()
+        if code:
+            raise SystemExit(code)
+print(f"Rust 1.94.0 tests passed; log: {log}")

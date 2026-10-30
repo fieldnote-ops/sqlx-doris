@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+"""Run all live contracts and examples; missing prerequisites are errors."""
+from datetime import datetime
+import json
+import os
+from pathlib import Path
+import platform
+import re
+import subprocess
+import sys
+import time
+
+project = Path(__file__).resolve().parents[1]
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    os.execv(
+        str(project / "scripts/dev"),
+        [
+            str(project / "scripts/dev"),
+            sys.executable,
+            "-B",
+            str(Path(__file__).resolve()),
+        ],
+    )
+os.chdir(project)
+for name in ("MYSQL_TEST_URL", "DORIS_TEST_URL", "DORIS_HTTP_URL", "DORIS_BE_HTTP_URL"):
+    if not os.environ.get(name):
+        raise SystemExit(f"{name} is required for live tests")
+root = Path(os.environ["SQLX_DORIS_BUILD_ROOT"])
+for folder, files, prepare in [
+    (
+        "tls",
+        (
+            "ca.pem",
+            "wrong-ca.pem",
+            "server-cert.pem",
+            "server-key.pem",
+            "client-cert.pem",
+            "client-key.pem",
+        ),
+        "prepare-test-certificates",
+    ),
+    (
+        "stream-load",
+        ("manifest.json", "sample.parquet", "sample.orc"),
+        "prepare-load-fixtures",
+    ),
+]:
+    if any(not (root / "fixtures" / folder / name).is_file() for name in files):
+        raise SystemExit(
+            f"run scripts/{prepare} and configure the instances per docs/TESTING.md"
+        )
+run = (
+    Path(os.environ["SQLX_DORIS_ARTIFACTS_DIR"])
+    / "live"
+    / datetime.now().strftime("%Y%m%d-%H%M%S")
+)
+run.mkdir(parents=True)
+command = [
+    "cargo",
+    "test",
+    "--locked",
+    "--offline",
+    "--workspace",
+    "--tests",
+    "--no-fail-fast",
+    "--",
+    "--ignored",
+    "--nocapture",
+    "--test-threads=1",
+]
+started = time.monotonic()
+with (run / "tests.log").open("w") as output:
+    code = subprocess.run(command, stdout=output, stderr=subprocess.STDOUT).returncode
+log = (run / "tests.log").read_text()
+counts = re.findall(
+    r"test result: (?:ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored;", log
+)
+summary = dict(
+    passed=code == 0 and bool(counts),
+    command=command,
+    host=platform.platform(),
+    seconds=time.monotonic() - started,
+    tests_passed=sum(int(v[0]) for v in counts),
+    tests_failed=sum(int(v[1]) for v in counts),
+    tests_ignored=sum(int(v[2]) for v in counts),
+    examples_passed=False,
+)
+if summary["tests_failed"] or summary["tests_ignored"] or not summary["tests_passed"]:
+    summary["passed"] = False
+if summary["passed"]:
+    with (run / "examples.log").open("w") as output:
+        examples = subprocess.run(
+            [str(project / "scripts/test-examples")],
+            stdout=output,
+            stderr=subprocess.STDOUT,
+        ).returncode
+    summary["examples_passed"] = examples == 0
+    summary["passed"] = examples == 0
+(run / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+print(f"Live tests passed={summary['passed']}: {run}")
+raise SystemExit(0 if summary["passed"] else 1)

@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""Run a command with project build products on a mounted external volume."""
+
+import json
+import os
+from pathlib import Path
+import sys
+
+
+def main():
+    if sys.version_info < (3, 12):
+        print("Development scripts require Python 3.12 or newer", file=sys.stderr)
+        return 2
+    configured_volume = os.environ.get("SQLX_DORIS_EXTERNAL_VOLUME")
+    if not configured_volume:
+        print(
+            "Set SQLX_DORIS_EXTERNAL_VOLUME to your mounted build volume before running scripts/dev",
+            file=sys.stderr,
+        )
+        return 2
+    volume = Path(configured_volume).resolve()
+    if not volume.is_mount() or volume.stat().st_dev == Path("/").stat().st_dev:
+        print(f"External volume is not mounted separately: {volume}", file=sys.stderr)
+        return 2
+
+    configured_root = os.environ.get("SQLX_DORIS_BUILD_ROOT")
+    root = Path(configured_root).resolve() if configured_root else volume / "sqlx-doris"
+    paths = {
+        "SQLX_DORIS_BUILD_ROOT": root,
+        "CARGO_HOME": root / "cargo-home",
+        "CARGO_TARGET_DIR": root / "target-clean",
+        "TMPDIR": root / "tmp-clean",
+        "TMP": root / "tmp-clean",
+        "TEMP": root / "tmp-clean",
+        "XDG_CACHE_HOME": root / "cache",
+        "SCCACHE_DIR": root / "cache" / "sccache",
+        "BLACK_CACHE_DIR": root / "cache" / "black",
+        "PYTHONPYCACHEPREFIX": root / "cache" / "python",
+        "SQLX_DORIS_ARTIFACTS_DIR": root / "artifacts" / "clean",
+    }
+    for path in paths.values():
+        # Existing symlinks must not redirect build products to another drive.
+        if not path.resolve().is_relative_to(volume):
+            print(f"Build path escapes external volume: {path}", file=sys.stderr)
+            return 2
+    if len(sys.argv) == 1:
+        print("Usage: ./scripts/dev <command> [args...] | --print-env", file=sys.stderr)
+        return 2
+    for path in paths.values():
+        path.mkdir(parents=True, exist_ok=True)
+    overrides = {key: str(value) for key, value in paths.items()}
+    if sys.argv[1:] == ["--print-env"]:
+        print(json.dumps(overrides, indent=2))
+        return 0
+    os.environ.update(overrides)
+    # A configured root alone does not prove the storage checks have run.
+    os.environ["SQLX_DORIS_DEV_ACTIVE"] = "1"
+    os.execvp(sys.argv[1], sys.argv[1:])
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

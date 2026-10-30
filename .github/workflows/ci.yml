@@ -1,0 +1,61 @@
+name: Tests
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      live:
+        description: Run tests against configured dedicated MySQL/Doris instances
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: sqlx-doris
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: [self-hosted, external-storage]
+    timeout-minutes: 60
+    env:
+      SQLX_DORIS_EXTERNAL_VOLUME: ${{ vars.SQLX_DORIS_EXTERNAL_VOLUME }}
+      SQLX_DORIS_BUILD_ROOT: ${{ vars.SQLX_DORIS_BUILD_ROOT }}
+    steps:
+      - name: Check runner storage before checkout
+        shell: bash
+        run: |
+          python3 -I -B - <<'PYTHON'
+          import os
+          from pathlib import Path
+          configured = os.environ.get('SQLX_DORIS_EXTERNAL_VOLUME')
+          if not configured:
+              raise SystemExit('set the SQLX_DORIS_EXTERNAL_VOLUME repository variable')
+          volume = Path(configured).resolve()
+          if not volume.is_mount() or volume.stat().st_dev == Path('/').stat().st_dev:
+              raise SystemExit('a physical external volume is required')
+          for key in ('GITHUB_WORKSPACE', 'RUNNER_TEMP', 'RUNNER_TOOL_CACHE'):
+              value = os.environ.get(key)
+              if not value or not Path(value).resolve().is_relative_to(volume):
+                  raise SystemExit(f'{key} must be external')
+          work = Path(os.environ['GITHUB_WORKSPACE']).parent.parent
+          for path in (work, work / '_actions'):
+              if not path.resolve().is_relative_to(volume):
+                  raise SystemExit('runner work and action cache must be external')
+          PYTHON
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - run: ./scripts/dev ./scripts/check
+      - run: ./scripts/dev ./scripts/test-msrv
+      - run: ./scripts/dev ./scripts/test-consumer
+      - name: Dedicated database tests
+        if: github.event_name == 'workflow_dispatch' && inputs.live
+        env:
+          MYSQL_TEST_URL: ${{ secrets.MYSQL_TEST_URL }}
+          DORIS_TEST_URL: ${{ secrets.DORIS_TEST_URL }}
+          DORIS_HTTP_URL: ${{ secrets.DORIS_HTTP_URL }}
+          DORIS_BE_HTTP_URL: ${{ secrets.DORIS_BE_HTTP_URL }}
+        run: |
+          ./scripts/dev ./scripts/test-live
+          ./scripts/dev ./scripts/test-mysql-regression
+          ./scripts/dev ./scripts/test-consumer --live

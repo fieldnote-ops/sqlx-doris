@@ -1,0 +1,338 @@
+#!/usr/bin/env python3
+"""Verify isolated source/bundle consumers, one native MySql identity, optionally live."""
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tarfile
+import time
+
+project = Path(__file__).resolve().parents[1]
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    os.execv(
+        str(project / "scripts/dev"),
+        [
+            str(project / "scripts/dev"),
+            sys.executable,
+            "-B",
+            str(Path(__file__).resolve()),
+            *sys.argv[1:],
+        ],
+    )
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument(
+    "--live",
+    action="store_true",
+    help="require both TEST_URL variables and execute both real databases",
+)
+parser.add_argument(
+    "--bundle", type=Path, help="exact compatibility archive on the external build root"
+)
+args = parser.parse_args()
+if os.environ.get("CARGO_BUILD_TARGET"):
+    raise SystemExit("test-consumer runs on the host; unset CARGO_BUILD_TARGET")
+if args.live:
+    for key in ["MYSQL_TEST_URL", "DORIS_TEST_URL"]:
+        if not os.environ.get(key):
+            raise SystemExit(f"{key} is required for --live")
+root = Path(os.environ["SQLX_DORIS_BUILD_ROOT"])
+# Online macro setup uses a fixed SQL name in the independently compiled query!.
+# Do not let two platform consumers create/drop each other's owned fixture.
+if args.live:
+    lock_path = root / "runtime/consumer-fixture.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fixture_lock = lock_path.open("a+")
+    try:
+        fcntl.flock(fixture_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise SystemExit(
+            "another live consumer owns the fixed macro fixture; run consumers serially"
+        )
+host = next(
+    line.split(": ", 1)[1]
+    for line in subprocess.check_output(["rustc", "-vV"], text=True).splitlines()
+    if line.startswith("host: ")
+)
+archive = (
+    args.bundle
+    or Path(os.environ["CARGO_TARGET_DIR"]) / "package/sqlx-doris-compat-0.1.0.tar.gz"
+)
+if not archive.resolve().is_relative_to(root.resolve()):
+    raise SystemExit(
+        "compatibility archive must remain on the selected external build root"
+    )
+if not archive.is_file():
+    raise SystemExit(
+        "run scripts/check to build the current compatibility bundle first"
+    )
+run = (
+    Path(os.environ["SQLX_DORIS_ARTIFACTS_DIR"])
+    / "consumer"
+    / time.strftime("%Y%m%d-%H%M%S")
+)
+run.mkdir(parents=True, exist_ok=False)
+with tarfile.open(archive) as package:
+    package.extractall(run / "archive", filter="data")
+bundle = run / "archive/sqlx-doris-compat-0.1.0"
+for name, expected in json.loads((bundle / "SHA256SUMS.json").read_text()).items():
+    if hashlib.sha256((bundle / name).read_bytes()).hexdigest() != expected:
+        raise SystemExit(f"bundle checksum mismatch: {name}")
+packaged = bundle / "sdk/sqlx-doris-0.1.0"
+if (packaged / "README.md").read_bytes() != (
+    project / "crates/sqlx-doris/README.md"
+).read_bytes():
+    raise SystemExit("packaged README differs from current source; repackage first")
+
+results = []
+cases = [
+    (
+        "bundle",
+        project / "crates/sqlx-doris/README.md",
+        packaged,
+        bundle / "patches/sqlx-mysql",
+        True,
+    ),
+    (
+        "source",
+        project / "docs/INSTALLATION.md",
+        project / "crates/sqlx-doris",
+        project / "patches/sqlx-mysql",
+        False,
+    ),
+]
+if args.live:
+    cases.append(
+        (
+            "unpatched-negative-control",
+            project / "docs/INSTALLATION.md",
+            packaged,
+            None,
+            False,
+        )
+    )
+for label, source, dependency, patch, default_features in cases:
+    snippet = re.search(r"```rust,no_run\n(.*?)\n```", source.read_text(), re.S)
+    if not snippet or "[patch.crates-io]" not in source.read_text():
+        raise SystemExit(f"missing installation snippet/root patch in {source}")
+    directory = run / (label + "-consumer")
+    (directory / "src").mkdir(parents=True)
+    rust = "\n".join(
+        line[2:] if line.startswith("# ") else line for line in snippet[1].splitlines()
+    )
+    identity = """
+pub fn same_pool(v: sqlx_doris::MySqlPool) -> ::sqlx::MySqlPool { v }
+pub fn same_database(v: sqlx_doris::sqlx::MySql) -> ::sqlx::MySql { v }
+pub fn same_connection(v: sqlx_doris::sqlx::MySqlConnection) -> ::sqlx::MySqlConnection { v }
+pub fn same_row(v: sqlx_doris::sqlx::mysql::MySqlRow) -> ::sqlx::mysql::MySqlRow { v }
+pub fn same_transaction<'a>(v: sqlx_doris::sqlx::Transaction<'a, sqlx_doris::sqlx::MySql>) -> ::sqlx::Transaction<'a, ::sqlx::MySql> { v }
+"""
+    (directory / "src/lib.rs").write_text(rust + identity)
+    (directory / "src/main.rs").write_bytes(
+        (project / "tools/consumer-compat.rs").read_bytes()
+    )
+    manifest = (
+        '[package]\nname = "sqlx-doris-consumer"\nversion = "0.0.0"\nedition = "2024"\n'
+        "[dependencies]\nsqlx-doris = { path = "
+        + json.dumps(str(dependency))
+        + ", default-features = "
+        + str(default_features).lower()
+        + ', features = ["macros"] }\n'
+        'sqlx = { version = "=0.9.0", default-features = false, features = ["mysql", "macros"] }\n'
+        'tokio = { version = "1", features = ["macros", "rt-multi-thread"] }\n'
+    )
+    if patch:
+        manifest += (
+            "\n[patch.crates-io]\nsqlx-mysql = { path = "
+            + json.dumps(str(patch))
+            + " }\n"
+        )
+    (directory / "Cargo.toml").write_text(manifest)
+    manifest_flags = ["--manifest-path", str(directory / "Cargo.toml")]
+    flags = manifest_flags
+    with (directory / "check.log").open("w") as output:
+
+        def command(argv):
+            output.write("$ " + " ".join(argv) + "\n")
+            output.flush()
+            subprocess.run(
+                argv, cwd=project, stdout=output, stderr=subprocess.STDOUT, check=True
+            )
+
+        command(["cargo", "generate-lockfile", "--offline", *manifest_flags])
+        if not patch:
+            # The SDK now invokes the companion's explicit transaction option.
+            # Missing the required root patch must be a visible compile error.
+            failed = subprocess.run(
+                ["cargo", "check", "--locked", "--offline", *flags],
+                cwd=project,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            output.write(failed.stdout)
+            output.flush()
+            if (
+                failed.returncode == 0
+                or "no method named" not in failed.stdout
+                or "doris_transaction_compatibility" not in failed.stdout
+            ):
+                raise SystemExit(
+                    "unpatched SDK did not fail for its missing companion API"
+                )
+            results.append(
+                {
+                    "source": str(source),
+                    "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                    "dependency": str(dependency),
+                    "compiled": False,
+                    "expected_compile_failure": True,
+                    "reason": "required SQLx companion transaction API absent",
+                    "evidence": str(directory / "check.log"),
+                }
+            )
+            print("unpatched consumer rejected at compile time as expected", flush=True)
+            continue
+        command(["cargo", "check", "--locked", "--offline", *flags])
+        metadata = json.loads(
+            subprocess.check_output(
+                [
+                    "cargo",
+                    "metadata",
+                    "--locked",
+                    "--offline",
+                    "--format-version",
+                    "1",
+                    "--filter-platform",
+                    host,
+                    *manifest_flags,
+                ],
+                cwd=project,
+            )
+        )
+        mysql = [p for p in metadata["packages"] if p["name"] == "sqlx-mysql"]
+        if len(mysql) != 1 or mysql[0]["version"] != "0.9.0":
+            raise SystemExit(f"duplicate/unexpected sqlx-mysql identity: {mysql}")
+        if (
+            patch
+            and Path(mysql[0]["manifest_path"]).resolve()
+            != (patch / "Cargo.toml").resolve()
+        ):
+            raise SystemExit("consumer did not resolve its own companion patch")
+        if not patch and not (mysql[0]["source"] or "").startswith("registry+"):
+            raise SystemExit("negative control unexpectedly used patched source")
+        (directory / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+        macro_paths = []
+        if args.live:
+            command(["cargo", "run", "--locked", "--offline", *flags])
+            if patch:
+                # Create real tables before online macro describe. Use the built
+                # non-macro binary for cleanup even if a macro compilation fails.
+                binary = (
+                    Path(os.environ["CARGO_TARGET_DIR"]) / "debug/sqlx-doris-consumer"
+                )
+                command([str(binary), "--setup-macro"])
+                try:
+                    with (directory / "src/lib.rs").open("a") as lib:
+                        lib.write(
+                            """
+pub async fn zero_argument_macro(pool: &::sqlx::MySqlPool) -> ::sqlx::Result<()> {
+    let before: i64 = ::sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_doris_consumer_macro_prepare").fetch_one(pool).await?;
+    let result = ::sqlx::query!("INSERT INTO _sqlx_doris_consumer_macro_prepare VALUES (1,3)").execute(pool).await?;
+    assert_eq!(result.rows_affected(), 1);
+    let after: i64 = ::sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_doris_consumer_macro_prepare").fetch_one(pool).await?;
+    assert_eq!(after, before + 1);
+    Ok(())
+}
+"""
+                        )
+                    (directory / "src/bin").mkdir()
+                    (directory / "src/bin/consumer-macro.rs").write_text(
+                        """
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    for (backend,key) in [(sqlx_doris::Backend::MySql,"MYSQL_TEST_URL"),(sqlx_doris::Backend::Doris,"DORIS_TEST_URL")] {
+        let db = sqlx_doris::PoolBuilder::new(backend).connect(&std::env::var(key)?).await?;
+        sqlx_doris_consumer::zero_argument_macro(db.pool()).await?;
+        db.close().await;
+    }
+    Ok(())
+}
+"""
+                    )
+                    for backend in ["MYSQL", "DORIS"]:
+                        cache = directory / (backend.lower() + "-macro-cache")
+                        cache.mkdir()
+                        env = os.environ.copy()
+                        env.update(
+                            DATABASE_URL=env[backend + "_TEST_URL"],
+                            SQLX_OFFLINE="false",
+                            SQLX_OFFLINE_DIR=str(cache),
+                        )
+                        for mode in ["online", "offline"]:
+                            (directory / "src/lib.rs").touch()
+                            argv = [
+                                "cargo",
+                                "run",
+                                "--locked",
+                                "--offline",
+                                *flags,
+                                "--bin",
+                                "consumer-macro",
+                            ]
+                            output.write(
+                                f"$ {backend} {mode} zero-argument query! describe/execute\n"
+                            )
+                            output.flush()
+                            subprocess.run(
+                                argv,
+                                cwd=project,
+                                env=env,
+                                stdout=output,
+                                stderr=subprocess.STDOUT,
+                                check=True,
+                            )
+                            macro_paths.append(backend.lower() + "-" + mode)
+                            if not list(cache.glob("query-*.json")):
+                                raise SystemExit(
+                                    "macro describe did not save external metadata"
+                                )
+                            env.pop("DATABASE_URL", None)
+                            env["SQLX_OFFLINE"] = "true"
+                finally:
+                    command([str(binary), "--cleanup-macro"])
+    results.append(
+        {
+            "source": str(source),
+            "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+            "dependency": str(dependency),
+            "sqlx_mysql_manifest": mysql[0]["manifest_path"],
+            "default_features": default_features,
+            "compiled": True,
+            "single_native_mysql_identity": True,
+            "zero_argument_macro_describe_and_execute": macro_paths,
+            "live": (
+                "both databases passed"
+                if args.live and patch
+                else "expected upstream rejection verified" if args.live else "not run"
+            ),
+            "evidence": str(directory / "check.log"),
+        }
+    )
+    print(f"{label} consumer passed", flush=True)
+(run / "summary.json").write_text(
+    json.dumps(
+        {
+            "bundle_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+            "target": host,
+            "consumers": results,
+        },
+        indent=2,
+    )
+    + "\n"
+)
+print(f"Independent consumers verified: {run}")

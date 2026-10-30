@@ -1,0 +1,3 @@
+# Preserve unified-diff context and upstream source bytes.
+patches/*.patch -whitespace
+patches/sqlx-mysql/** -whitespace

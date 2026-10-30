@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""Run demos and compile the same SQLx macro against each dedicated backend."""
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+project = Path(__file__).resolve().parents[1]
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    os.execv(
+        str(project / "scripts/dev"),
+        [
+            str(project / "scripts/dev"),
+            sys.executable,
+            "-B",
+            str(Path(__file__).resolve()),
+        ],
+    )
+os.chdir(project)
+for key in ["MYSQL_TEST_URL", "DORIS_TEST_URL", "DORIS_HTTP_URL"]:
+    if not os.environ.get(key):
+        raise SystemExit(f"{key} is required")
+os.environ["MYSQL_URL"] = os.environ["MYSQL_TEST_URL"]
+os.environ["DORIS_URL"] = os.environ["DORIS_TEST_URL"]
+log = Path(os.environ["SQLX_DORIS_ARTIFACTS_DIR"]) / "examples.log"
+commands = [
+    (name, ["cargo", "run", "--locked", "-p", "sqlx-doris", "--example", name])
+    for name in ["dual_pool", "native_types", "stream_load"]
+]
+commands.append(
+    (
+        "macros online/offline",
+        [sys.executable, "-B", str(project / "scripts/test-macros")],
+    )
+)
+with log.open("w") as output:
+    for name, command in commands:
+        print(name, flush=True)
+        output.write(name + "\n")
+        process = subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        )
+        for line in process.stdout:
+            print(line, end="", flush=True)
+            output.write(line)
+        code = process.wait()
+        output.flush()
+        if code:
+            raise SystemExit(code)
+print(f"Five examples and macro online/offline paths passed; log: {log}")

@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Verify the narrowly scoped vendored SQLx patch and its upstream provenance."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+
+project = Path(__file__).resolve().parents[1]
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    os.execv(
+        str(project / "scripts/dev"),
+        [
+            str(project / "scripts/dev"),
+            sys.executable,
+            "-B",
+            str(Path(__file__).resolve()),
+        ],
+    )
+provenance = json.loads((project / "patches/sqlx-mysql-provenance.json").read_text())
+directory = project / "patches/sqlx-mysql"
+expected = {
+    **provenance["upstream_files"],
+    **provenance["modified_files"],
+    **provenance["license_files"],
+}
+actual = {
+    str(p.relative_to(directory)): hashlib.sha256(p.read_bytes()).hexdigest()
+    for p in directory.rglob("*")
+    if p.is_file()
+}
+if actual != expected:
+    changed = sorted(
+        k for k in set(actual) | set(expected) if actual.get(k) != expected.get(k)
+    )
+    raise SystemExit(f"SQLx patch source/provenance mismatch: {changed}")
+if set(provenance["modified_files"]) != {
+    "src/protocol/statement/prepare_ok.rs",
+    "src/transaction.rs",
+    "src/protocol/response/ok.rs",
+    "src/options/mod.rs",
+    "src/connection/mod.rs",
+    "src/connection/establish.rs",
+    "src/connection/stream.rs",
+    "src/connection/tls.rs",
+    "src/connection/executor.rs",
+    "src/connection/bindings.rs",
+    "src/types/mysql_time.rs",
+    "src/types/chrono.rs",
+    "src/types/time.rs",
+    "src/connection/bindings/syntax.rs",
+    "src/connection/bindings/generated.rs",
+}:
+    raise SystemExit("unexpected SQLx patch scope")
+print(
+    f"Verified SQLx {provenance['version']}: {len(provenance['upstream_files'])} upstream files, {len(provenance['modified_files'])} reviewed protocol/transaction/binding/type source changes, full license texts"
+)

@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+"""Format Rust and Python sources; --check verifies without writing."""
+import argparse
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+project = Path(__file__).resolve().parents[1]
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    os.execv(
+        str(project / "scripts/dev"),
+        [
+            str(project / "scripts/dev"),
+            sys.executable,
+            "-B",
+            str(Path(__file__).resolve()),
+            *sys.argv[1:],
+        ],
+    )
+os.chdir(project)
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--check", action="store_true")
+args = parser.parse_args()
+subprocess.run(
+    ["cargo", "fmt", "--all", *(["--", "--check"] if args.check else [])], check=True
+)
+files = [
+    str(path)
+    for root in ("scripts", "tools", "tests", "crates/sqlx-doris/tests/support")
+    for path in Path(root).rglob("*")
+    if path.is_file()
+    and (
+        path.suffix == ".py"
+        or path.parent == Path("scripts")
+        and path.read_bytes().startswith(b"#!/usr/bin/env python3")
+    )
+]
+subprocess.run(["black", *(["--check"] if args.check else []), *files], check=True)

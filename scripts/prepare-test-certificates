@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""Generate external test certificates; configure dedicated servers separately."""
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+project = Path(__file__).resolve().parents[1]
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    os.execv(
+        str(project / "scripts/dev"),
+        [
+            str(project / "scripts/dev"),
+            sys.executable,
+            "-B",
+            str(Path(__file__).resolve()),
+        ],
+    )
+certs = Path(os.environ["SQLX_DORIS_BUILD_ROOT"]) / "fixtures/tls"
+certs.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+
+def openssl(*args):
+    subprocess.run(
+        ["openssl", *args],
+        cwd=certs,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+
+
+if not (certs / "server_certificate.p12").is_file():
+    for prefix in ["ca", "wrong-ca"]:
+        openssl(
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            f"{prefix}-key.pem",
+            "-out",
+            f"{prefix}.pem",
+            "-days",
+            "365",
+            "-subj",
+            f"/CN=sqlx-doris-fixture-{prefix}",
+            "-addext",
+            "basicConstraints=critical,CA:TRUE",
+            "-addext",
+            "keyUsage=critical,keyCertSign,cRLSign",
+        )
+    for role, purpose, serial in [
+        ("server", "serverAuth", "1"),
+        ("client", "clientAuth", "2"),
+    ]:
+        openssl(
+            "req",
+            "-new",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            f"{role}-key.pem",
+            "-out",
+            f"{role}.csr",
+            "-subj",
+            f"/CN=sqlx-doris-fixture-{role}",
+        )
+        extension = (
+            "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage="
+            + purpose
+            + "\n"
+        )
+        if role == "server":
+            # DNS localhost is valid; IP 127.0.0.1 is deliberately absent so
+            # VerifyIdentity has a deterministic negative case without hosts edits.
+            extension += "subjectAltName=DNS:localhost\n"
+        (certs / f"{role}.ext").write_text(extension)
+        openssl(
+            "x509",
+            "-req",
+            "-in",
+            f"{role}.csr",
+            "-CA",
+            "ca.pem",
+            "-CAkey",
+            "ca-key.pem",
+            "-set_serial",
+            serial,
+            "-out",
+            f"{role}-cert.pem",
+            "-days",
+            "365",
+            "-extfile",
+            f"{role}.ext",
+        )
+    openssl(
+        "pkcs12",
+        "-export",
+        "-inkey",
+        "ca-key.pem",
+        "-in",
+        "ca.pem",
+        "-out",
+        "ca_certificate.p12",
+        "-passout",
+        "pass:fixture",
+    )
+    openssl(
+        "pkcs12",
+        "-export",
+        "-inkey",
+        "server-key.pem",
+        "-in",
+        "server-cert.pem",
+        "-certfile",
+        "ca.pem",
+        "-out",
+        "server_certificate.p12",
+        "-passout",
+        "pass:fixture",
+    )
+    for path in certs.iterdir():
+        path.chmod(0o600 if "key" in path.name or path.suffix == ".p12" else 0o644)
+
+print(f"Test certificates: {certs}; configure dedicated servers per docs/TESTING.md")

@@ -1,0 +1,17 @@
+[package]
+name = "sqlx-doris-mysql-regression"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+official-baseline = []
+
+[dependencies]
+sqlx.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+serde_json.workspace = true
+bigdecimal.workspace = true
+chrono.workspace = true
+futures-util = "0.3"

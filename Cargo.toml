@@ -1,0 +1,23 @@
+[workspace]
+members = ["crates/sqlx-doris", "tests/protocol", "tests/mysql-regression"]
+default-members = ["crates/sqlx-doris"]
+resolver = "3"
+exclude = ["patches/sqlx-mysql", "tests/mysql-upstream"]
+
+# Keep one native MySql package for SQLx, its macros and application dependencies.
+[patch.crates-io]
+sqlx-mysql = { path = "patches/sqlx-mysql" }
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.94"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+sqlx = { version = "=0.9.0", default-features = false, features = ["mysql", "runtime-tokio", "tls-rustls-aws-lc-rs", "json", "bigdecimal", "chrono", "derive"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "net", "io-util", "fs"] }
+bigdecimal = { version = "0.4", features = ["serde"] }
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+serde = { version = "1", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
