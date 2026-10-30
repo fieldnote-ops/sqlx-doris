@@ -6,7 +6,7 @@ use std::{
 
 use chrono::{DateTime, FixedOffset, SecondsFormat};
 use serde::{Deserialize, Serialize};
-use sqlx::{
+use crate::sqlx::{
     Decode, Encode, MySql, Type,
     encode::IsNull,
     error::BoxDynError,

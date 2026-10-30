@@ -1,7 +1,7 @@
 use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Serialize};
-use sqlx::{
+use crate::sqlx::{self,
     Decode, Encode, MySql, Type,
     encode::IsNull,
     error::BoxDynError,

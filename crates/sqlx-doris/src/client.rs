@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use sqlx::{
+use crate::sqlx::{self,
     Connection, Executor, MySqlConnection, MySqlPool,
     mysql::{MySqlConnectOptions, MySqlPoolOptions},
 };

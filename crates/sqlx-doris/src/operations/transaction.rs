@@ -1,5 +1,5 @@
 use crate::{Error, Result};
-use sqlx::{Executor, MySql, MySqlPool, SqlSafeStr, mysql::MySqlQueryResult, pool::PoolConnection};
+use crate::sqlx::{Executor, MySql, MySqlPool, SqlSafeStr, mysql::MySqlQueryResult, pool::PoolConnection};
 
 /// An explicitly limited Doris raw-SQL write transaction.
 ///

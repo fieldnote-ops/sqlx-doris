@@ -8,7 +8,7 @@ use serde::{
     de::{DeserializeOwned, MapAccess, SeqAccess, Visitor},
     ser::SerializeMap,
 };
-use sqlx::{
+use crate::sqlx::{
     Decode, Encode, MySql, Type,
     encode::IsNull,
     error::BoxDynError,

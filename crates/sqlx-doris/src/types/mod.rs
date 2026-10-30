@@ -20,6 +20,7 @@ pub use scalar::{Binary, Hex, Ipv4, Ipv6, LargeInt, TimestampTz};
 pub use text::TextError;
 pub use time::Time;
 
+use crate::sqlx;
 pub(crate) fn text_compatible(info: &sqlx::mysql::MySqlTypeInfo) -> bool {
     <String as sqlx::Type<sqlx::MySql>>::compatible(info)
         || <sqlx::types::Json<serde_json::Value> as sqlx::Type<sqlx::MySql>>::compatible(info)

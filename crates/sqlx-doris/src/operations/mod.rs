@@ -1,4 +1,5 @@
 //! Doris schema, transactions, and visibility operations.
+use crate::sqlx;
 
 mod materialized_view;
 mod polling;
@@ -50,7 +51,7 @@ impl Client {
     }
     /// Create an OLAP table with an explicitly selected Doris table model.
     pub async fn create_table(&self, definition: &TableDefinition) -> Result<()> {
-        use sqlx::Executor;
+        use crate::sqlx::Executor;
         self.require_doris()?;
         self.pool()
             .execute(sqlx::AssertSqlSafe(definition.to_sql()?))

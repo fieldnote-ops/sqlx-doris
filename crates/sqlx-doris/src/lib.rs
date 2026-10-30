@@ -22,5 +22,5 @@ pub mod types;
 
 pub use client::{Backend, Capabilities, Client, ConnectFuture, GroupCommit, PoolBuilder};
 pub use error::{Error, Result};
-pub use sqlx;
-pub use sqlx::{MySql, MySqlConnection, MySqlPool};
+pub mod sqlx;
+pub use crate::sqlx::{MySql, MySqlConnection, MySqlPool};

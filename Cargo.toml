@@ -1,12 +1,14 @@
 [workspace]
-members = ["crates/sqlx-doris", "tests/protocol", "tests/mysql-regression"]
+members = ["crates/sqlx-doris", "crates/sqlx-mysql", "tests/protocol", "tests/mysql-regression"]
 default-members = ["crates/sqlx-doris"]
 resolver = "3"
-exclude = ["patches/sqlx-mysql", "tests/mysql-upstream"]
+exclude = ["tests/mysql-upstream"]
 
-# Keep one native MySql package for SQLx, its macros and application dependencies.
+# The SDK carries the driver as a path dependency, so applications need no patch.
+# This entry only keeps this workspace's own SQLx-based tests and macro examples on
+# the same native MySql package.
 [patch.crates-io]
-sqlx-mysql = { path = "patches/sqlx-mysql" }
+sqlx-mysql = { path = "crates/sqlx-mysql" }
 
 [workspace.package]
 edition = "2024"
@@ -21,6 +23,18 @@ serde_json = { version = "1", features = ["arbitrary_precision"] }
 serde = { version = "1", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
+
+[workspace.dependencies.sqlx-core]
+version = "=0.9.0"
+default-features = false
+features = [
+    "_rt-tokio",
+    "_tls-rustls-aws-lc-rs",
+    "json",
+    "bigdecimal",
+    "chrono",
+    "migrate",
+]
 
 [workspace.dependencies.sqlx]
 version = "=0.9.0"

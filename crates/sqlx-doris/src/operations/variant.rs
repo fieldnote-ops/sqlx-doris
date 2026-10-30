@@ -1,5 +1,5 @@
 use crate::Result;
-use sqlx::{MySql, QueryBuilder};
+use crate::sqlx::{self, MySql, QueryBuilder};
 
 use super::{
     DataType,

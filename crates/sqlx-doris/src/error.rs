@@ -3,7 +3,7 @@
 pub enum Error {
     /// A database/protocol error from SQLx, retaining its original cause.
     #[error(transparent)]
-    Database(#[from] sqlx::Error),
+    Database(#[from] crate::sqlx::Error),
     /// Invalid local configuration, identifiers or request data.
     #[error("{0}")]
     InvalidInput(String),
