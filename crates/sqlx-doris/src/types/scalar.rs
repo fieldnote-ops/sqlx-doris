@@ -4,14 +4,14 @@ use std::{
     ops::Deref,
 };
 
-use chrono::{DateTime, FixedOffset, SecondsFormat};
-use serde::{Deserialize, Serialize};
 use crate::sqlx::{
     Decode, Encode, MySql, Type,
     encode::IsNull,
     error::BoxDynError,
     mysql::{MySqlTypeInfo, MySqlValueRef},
 };
+use chrono::{DateTime, FixedOffset, SecondsFormat};
+use serde::{Deserialize, Serialize};
 
 /// Signed 128-bit integer. MySQL can store it in DECIMAL(39,0), Doris in LARGEINT.
 #[derive(

@@ -1,5 +1,5 @@
-use crate::{Error, Result};
 use crate::sqlx::{self, MySql, MySqlPool, QueryBuilder, Row};
+use crate::{Error, Result};
 use std::{collections::BTreeMap, fmt};
 
 pub(super) fn identifier(value: &str) -> String {

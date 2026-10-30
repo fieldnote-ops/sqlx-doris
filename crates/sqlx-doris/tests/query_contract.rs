@@ -4,9 +4,7 @@ use futures_util::TryStreamExt;
 use sqlx_doris::{
     Backend, Client, PoolBuilder,
     operations::{Column, DataType as T, TableDefinition, TableModel, TableName},
-    sqlx::{
-        self, Connection, Executor, MySql, QueryBuilder, Row, mysql::MySqlConnectOptions,
-    },
+    sqlx::{self, Connection, Executor, MySql, QueryBuilder, Row, mysql::MySqlConnectOptions},
 };
 use std::{env, str::FromStr, time::Duration};
 

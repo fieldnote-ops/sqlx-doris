@@ -3,16 +3,16 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use serde::{
-    Deserialize, Deserializer, Serialize, Serializer,
-    de::{DeserializeOwned, MapAccess, SeqAccess, Visitor},
-    ser::SerializeMap,
-};
 use crate::sqlx::{
     Decode, Encode, MySql, Type,
     encode::IsNull,
     error::BoxDynError,
     mysql::{MySqlTypeInfo, MySqlValueRef},
+};
+use serde::{
+    Deserialize, Deserializer, Serialize, Serializer,
+    de::{DeserializeOwned, MapAccess, SeqAccess, Visitor},
+    ser::SerializeMap,
 };
 
 use super::{json, text, text_compatible};

@@ -8,8 +8,8 @@ use std::{
     time::Duration,
 };
 
-use crate::sqlx::{self,
-    Connection, Executor, MySqlConnection, MySqlPool,
+use crate::sqlx::{
+    self, Connection, Executor, MySqlConnection, MySqlPool,
     mysql::{MySqlConnectOptions, MySqlPoolOptions},
 };
 

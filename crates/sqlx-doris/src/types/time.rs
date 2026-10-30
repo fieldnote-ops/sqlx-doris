@@ -1,12 +1,12 @@
 use std::{fmt, str::FromStr};
 
-use serde::{Deserialize, Serialize};
-use crate::sqlx::{self,
-    Decode, Encode, MySql, Type,
+use crate::sqlx::{
+    self, Decode, Encode, MySql, Type,
     encode::IsNull,
     error::BoxDynError,
     mysql::{MySqlTypeInfo, MySqlValueRef},
 };
+use serde::{Deserialize, Serialize};
 
 /// A signed Doris TIME duration, including the full microsecond boundary.
 ///

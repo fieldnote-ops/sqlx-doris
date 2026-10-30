@@ -1,8 +1,10 @@
 [workspace]
-members = ["crates/sqlx-doris", "crates/sqlx-mysql", "tests/protocol", "tests/mysql-regression"]
+members = ["crates/sqlx-doris", "tests/protocol", "tests/mysql-regression"]
 default-members = ["crates/sqlx-doris"]
 resolver = "3"
-exclude = ["tests/mysql-upstream"]
+# The driver is a patched upstream crate: it stays outside workspace lint/format
+# sweeps so its bytes match the reviewed provenance hashes.
+exclude = ["crates/sqlx-mysql", "tests/mysql-upstream"]
 
 # The SDK carries the driver as a path dependency, so applications need no patch.
 # This entry only keeps this workspace's own SQLx-based tests and macro examples on

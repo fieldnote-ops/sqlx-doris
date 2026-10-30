@@ -1,5 +1,5 @@
-use serde::Serialize;
 use crate::sqlx::{self, MySql, QueryBuilder};
+use serde::Serialize;
 
 use super::DataType;
 use crate::{Error, Result, types::text};

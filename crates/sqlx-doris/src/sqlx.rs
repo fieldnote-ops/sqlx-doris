@@ -9,6 +9,7 @@
 //! Compile-time macros (`query!`) still expand to `::sqlx::` paths, so they need
 //! the upstream `sqlx` crate and the documented patch variant.
 
+pub use sqlx_core::Either;
 pub use sqlx_core::acquire::Acquire;
 pub use sqlx_core::arguments::{Arguments, IntoArguments};
 pub use sqlx_core::column::{Column, ColumnIndex};
@@ -25,7 +26,7 @@ pub use sqlx_core::query::{query, query_with};
 pub use sqlx_core::query_as::{query_as, query_as_with};
 pub use sqlx_core::query_builder::{self, QueryBuilder};
 pub use sqlx_core::query_scalar::{query_scalar, query_scalar_with};
-pub use sqlx_core::raw_sql::{raw_sql, RawSql};
+pub use sqlx_core::raw_sql::{RawSql, raw_sql};
 pub use sqlx_core::row::Row;
 pub use sqlx_core::sql_str::{AssertSqlSafe, SqlSafeStr, SqlStr};
 pub use sqlx_core::statement::Statement;
@@ -33,7 +34,6 @@ pub use sqlx_core::transaction::Transaction;
 pub use sqlx_core::type_info::TypeInfo;
 pub use sqlx_core::types::Type;
 pub use sqlx_core::value::{Value, ValueRef};
-pub use sqlx_core::Either;
 
 pub use sqlx_mysql::{
     self as mysql, MySql, MySqlConnection, MySqlExecutor, MySqlPool, MySqlTransaction,

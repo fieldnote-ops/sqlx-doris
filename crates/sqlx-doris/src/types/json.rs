@@ -222,8 +222,8 @@ record!(SerializeStructVariant);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Array, Map, Struct, Variant};
     use crate::sqlx::{Encode, MySql};
+    use crate::types::{Array, Map, Struct, Variant};
     #[derive(Serialize)]
     struct Reading {
         nested: Option<Array<f64>>,

@@ -1,6 +1,6 @@
 use super::TableName;
-use crate::{Client, Error, Result};
 use crate::sqlx::{self, Row};
+use crate::{Client, Error, Result};
 use std::time::Duration;
 
 /// Refresh strategy for an asynchronous Doris materialized view.
