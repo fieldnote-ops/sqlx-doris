@@ -59,7 +59,17 @@ async fn read_request(socket: &mut TcpStream) -> Request {
 }
 
 async fn respond(socket: &mut TcpStream, status: &str, extra: &str, body: &str) {
-    socket.write_all(format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n{extra}\r\n{body}",body.len()).as_bytes()).await.unwrap();
+    socket
+        .write_all(
+            format!(
+                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: \
+        application/json\r\nConnection: close\r\n{extra}\r\n{body}",
+                body.len()
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
 }
 async fn listener() -> TcpListener {
     TcpListener::bind("127.0.0.1:0").await.unwrap()
@@ -179,13 +189,23 @@ async fn http_200_failure_retains_counts_label_and_error_url() {
     let task = tokio::spawn(async move {
         let (mut socket, _) = server.accept().await.unwrap();
         read_request(&mut socket).await;
-        respond(&mut socket,"200 OK","",r#"{"Status":"Fail","Message":"filtered rows","NumberTotalRows":2,"NumberFilteredRows":1,"ErrorURL":"http://be/errors/fixture"}"#).await;
+        respond(
+            &mut socket,
+            "200 OK",
+            "",
+            "{\"Status\":\"Fail\",\
+            \"Message\":\"filtered rows\",\
+            \"NumberTotalRows\":2,\
+            \"NumberFilteredRows\":1,\
+            \"ErrorURL\":\"http://be/errors/fixture\"}",
+        )
+        .await;
     });
     let error = client(&endpoint)
         .load(&TableName::new("db", "table"))
         .unwrap()
         .label("failed-label")
-        .send_json(&[serde_json::json!({"id":1})])
+        .send_json(&[serde_json::json!({ "id": 1 })])
         .await
         .unwrap_err();
     match error {
@@ -273,7 +293,12 @@ async fn group_commit_omits_the_label_and_reports_server_acceptance() {
             let request = read_request(&mut socket).await;
             assert!(!request.headers.contains_key("label"));
             assert_eq!(request.headers["group_commit"], "async_mode");
-            let mut body = serde_json::json!({"Status":"Success","GroupCommit":true,"GroupCommitMode":server_mode,"Label":"group-assigned"});
+            let mut body = serde_json::json!({
+                "Status": "Success",
+                "GroupCommit": true,
+                "GroupCommitMode": server_mode,
+                "Label": "group-assigned"
+            });
             if server_mode.is_none() {
                 body.as_object_mut().unwrap().remove("GroupCommitMode");
             }
@@ -283,7 +308,7 @@ async fn group_commit_omits_the_label_and_reports_server_acceptance() {
             .load(&TableName::new("db", "table"))
             .unwrap()
             .group_commit(GroupCommit::Async)
-            .send_json(&[serde_json::json!({"id":1})])
+            .send_json(&[serde_json::json!({ "id": 1 })])
             .await
             .unwrap();
         assert_eq!(

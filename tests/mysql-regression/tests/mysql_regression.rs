@@ -282,11 +282,20 @@ async fn crud_query_builder_defaults_and_dto() {
 async fn exact_decimal_json_and_datetime() {
     let pool = pool().await;
     let table = table();
-    pool.execute(sqlx::AssertSqlSafe(format!("CREATE TABLE {table}(id BIGINT PRIMARY KEY,d DECIMAL(65,30),j JSON,day DATE,dt DATETIME(6))"))).await.unwrap();
+    pool.execute(sqlx::AssertSqlSafe(format!(
+        "CREATE TABLE {table}(id BIGINT PRIMARY KEY,d DECIMAL(65,30),j JSON,day DATE,\
+        dt DATETIME(6))"
+    )))
+    .await
+    .unwrap();
     let decimal =
         BigDecimal::from_str("12345678901234567890123456789012345.123456789012345678901234567890")
             .unwrap();
-    let json = serde_json::json!({"quote":"\u{0}中文🙂","null":null,"n":123456789012345678901234567890_u128.to_string()});
+    let json = serde_json::json!({
+        "quote": "\u{0}中文🙂",
+        "null": null,
+        "n": 123456789012345678901234567890_u128.to_string()
+    });
     let day = NaiveDate::from_ymd_opt(1000, 1, 2).unwrap();
     let dt = day.and_hms_micro_opt(3, 4, 5, 999999).unwrap();
     sqlx::query(sqlx::AssertSqlSafe(format!(
@@ -625,7 +634,8 @@ async fn native_time_membership_cache_coercion_is_preserved() {
     .await
     .unwrap();
     pool.execute(sqlx::AssertSqlSafe(format!(
-        "INSERT INTO {table} VALUES(0,NULL),(1,'-00:00:00.000001'),(2,'00:00:00'),(3,'25:00:00')"
+        "INSERT INTO {table} VALUES(0,NULL),(1,'-00:00:00.000001'),(2,'00:00:00'),(3,\
+            '25:00:00')"
     )))
     .await
     .unwrap();

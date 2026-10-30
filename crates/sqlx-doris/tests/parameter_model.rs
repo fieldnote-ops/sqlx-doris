@@ -45,7 +45,8 @@ async fn proxied(b: Backend, m: proxy::Mode) -> (Client, proxy::Proxy) {
 async fn table(db: &Client) -> TableName {
     let t = common::name();
     let schema = if db.backend() == Backend::Doris {
-        "(id BIGINT,b STRING,t VARCHAR(64),n BIGINT) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
+        "(id BIGINT,b STRING,t VARCHAR(64),n BIGINT) UNIQUE KEY(id) DISTRIBUTED BY \
+            HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
     } else {
         "(id BIGINT PRIMARY KEY,b LONGBLOB,t TIME(6),n BIGINT)"
     };
@@ -336,7 +337,10 @@ async fn generated_mixed_time_byte_writes_cancel_or_lose_ack_without_replay() {
                         if lost {
                             assert!(future.await.is_err());
                         } else {
-                            tokio::select! {_=&mut future=>panic!("write did not pause"),_=p.reached()=>{}}
+                            tokio::select! {
+                                _ = &mut future => panic!("write did not pause"),
+                                _ = p.reached() => {}
+                            }
                         }
                     }
                     drop(tx);
@@ -347,7 +351,10 @@ async fn generated_mixed_time_byte_writes_cancel_or_lose_ack_without_replay() {
                         if lost {
                             assert!(future.await.is_err());
                         } else {
-                            tokio::select! {_=&mut future=>panic!("write did not pause"),_=p.reached()=>{}}
+                            tokio::select! {
+                                _ = &mut future => panic!("write did not pause"),
+                                _ = p.reached() => {}
+                            }
                         }
                     }
                 }
@@ -430,7 +437,8 @@ async fn raw_controls_separate_comment_and_mixed_time_coercion_differences() {
         let ids: Vec<i64> = rows.iter().map(|r| r.get(0)).collect();
         assert_eq!(ids, vec![1, 2, 6]);
         eprintln!(
-            "mixed native TIME/string coercion control {b:?}: {ids:?}; normalized TIME(6) domain on both backends"
+            "mixed native TIME/string coercion control {b:?}: {ids:?}; normalized \
+                TIME(6) domain on both backends"
         );
         let expr = Expr::In(
             Domain::Time,
@@ -449,7 +457,8 @@ async fn raw_controls_separate_comment_and_mixed_time_coercion_differences() {
         let ids: Vec<i64> = rows.iter().map(|r| r.get(0)).collect();
         assert_eq!(ids, vec![1, 2, 6]);
         eprintln!(
-            "native zero TIME IN coercion control {b:?}: {ids:?}; native types retained; precision normalized"
+            "native zero TIME IN coercion control {b:?}: {ids:?}; native types retained; \
+                precision normalized"
         );
         common::drop_table(&db, &t).await;
         db.close().await;

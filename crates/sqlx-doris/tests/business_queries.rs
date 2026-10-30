@@ -84,7 +84,13 @@ async fn seed(db: &Client) -> TableName {
     } else {
         "LONGBLOB"
     };
-    db.pool().execute(sqlx::AssertSqlSafe(format!("CREATE TABLE {t}(id BIGINT NOT NULL{id},tenant BIGINT NOT NULL,priority BIGINT NULL,title VARCHAR(128) NULL,payload {bytes} NULL){suffix}"))).await.unwrap();
+    db.pool()
+        .execute(sqlx::AssertSqlSafe(format!(
+            "CREATE TABLE {t}(id BIGINT NOT NULL{id},tenant BIGINT NOT NULL,priority \
+        BIGINT NULL,title VARCHAR(128) NULL,payload {bytes} NULL){suffix}"
+        )))
+        .await
+        .unwrap();
     let mut q: sqlx::QueryBuilder<sqlx::MySql> =
         sqlx::QueryBuilder::new(format!("INSERT INTO {t} "));
     let data = events();
@@ -119,7 +125,9 @@ fn selected(tenant: Option<i64>, minimum: Option<i64>, payload: Option<&[u8]>) -
 }
 fn page_query(t: &TableName) -> String {
     format!(
-        "SELECT id,tenant,priority,title,payload FROM {t} WHERE (? IS NULL OR tenant=?) AND (? IS NULL OR priority>=?) AND (? IS NULL OR payload=?) ORDER BY priority IS NULL,priority DESC,id DESC LIMIT ? OFFSET ?"
+        "SELECT id,tenant,priority,title,payload FROM {t} WHERE (? IS NULL OR \
+            tenant=?) AND (? IS NULL OR priority>=?) AND (? IS NULL OR payload=?) ORDER \
+            BY priority IS NULL,priority DESC,id DESC LIMIT ? OFFSET ?"
     )
 }
 
@@ -228,7 +236,8 @@ async fn querybuilder_keyset_comma_and_nested_pages_keep_order_and_bindings() {
             for sql in [
                 format!("SELECT id FROM {t} WHERE tenant=? ORDER BY id LIMIT ?,?"),
                 format!(
-                    "SELECT id FROM (SELECT id FROM {t} WHERE tenant=? ORDER BY id LIMIT 15) a ORDER BY id LIMIT ? OFFSET ?"
+                    "SELECT id FROM (SELECT id FROM {t} WHERE tenant=? ORDER BY id LIMIT 15) a \
+                        ORDER BY id LIMIT ? OFFSET ?"
                 ),
             ] {
                 let comma = sql.contains("?,?");
@@ -242,8 +251,18 @@ async fn querybuilder_keyset_comma_and_nested_pages_keep_order_and_bindings() {
                     .unwrap();
                 assert_eq!(ids, [10, 13, 16, 19, 22]);
             }
-            let ids: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT id FROM (SELECT id FROM {t} WHERE tenant=? ORDER BY id LIMIT ?) a ORDER BY id DESC LIMIT ? OFFSET ?")))
-                .bind(1_i64).bind(9_i64).bind(3_i64).bind(2_i64).persistent(persistent).fetch_all(db.pool()).await.unwrap();
+            let ids: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                "SELECT id FROM (SELECT id FROM {t} WHERE tenant=? ORDER BY id LIMIT ?) a \
+                ORDER BY id DESC LIMIT ? OFFSET ?"
+            )))
+            .bind(1_i64)
+            .bind(9_i64)
+            .bind(3_i64)
+            .bind(2_i64)
+            .persistent(persistent)
+            .fetch_all(db.pool())
+            .await
+            .unwrap();
             assert_eq!(ids, [19, 16, 13]);
         }
         common::drop_table(&db, &t).await;
@@ -267,8 +286,23 @@ async fn filtered_aggregate_having_and_empty_reports_share_dto_and_bound_pages()
         for tenant in [None, Some(0_i64), Some(99)] {
             for threshold in [1_i64, 5, 99] {
                 for persistent in [true, true, false] {
-                    let rows: Vec<Report> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT priority,CAST(COUNT(*) AS SIGNED) row_count,CAST(COUNT(title) AS SIGNED) populated,CAST(SUM(id) AS SIGNED) total FROM {t} WHERE (? IS NULL OR tenant=?) GROUP BY priority HAVING COUNT(*)>=? ORDER BY priority IS NULL,priority LIMIT ? OFFSET ?")))
-                        .bind(tenant).bind(tenant).bind(threshold).bind(3_i64).bind(1_i64).persistent(persistent).fetch_all(db.pool()).await.unwrap();
+                    let rows: Vec<Report> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                        "SELECT priority,CAST(COUNT(*) AS SIGNED) row_count,\
+                        CAST(COUNT(title) AS SIGNED) populated,CAST(SUM(id) AS SIGNED) total \
+                        FROM {t} \
+                        WHERE (? IS NULL OR tenant=?) \
+                        GROUP BY priority HAVING COUNT(*)>=? \
+                        ORDER BY priority IS NULL,priority LIMIT ? OFFSET ?"
+                    )))
+                    .bind(tenant)
+                    .bind(tenant)
+                    .bind(threshold)
+                    .bind(3_i64)
+                    .bind(1_i64)
+                    .persistent(persistent)
+                    .fetch_all(db.pool())
+                    .await
+                    .unwrap();
                     let mut oracle = Vec::new();
                     for priority in [Some(0), Some(1), Some(2), Some(3), None] {
                         let group: Vec<_> = events()
@@ -295,8 +329,15 @@ async fn filtered_aggregate_having_and_empty_reports_share_dto_and_bound_pages()
                 }
             }
         }
-        let empty: (i64,i64,Option<i64>)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT CAST(COUNT(*) AS SIGNED),CAST(COUNT(title) AS SIGNED),CAST(SUM(id) AS SIGNED) FROM {t} WHERE tenant=? LIMIT ?")))
-            .bind(99_i64).bind(1_i64).fetch_one(db.pool()).await.unwrap();
+        let empty: (i64, i64, Option<i64>) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT CAST(COUNT(*) AS SIGNED),CAST(COUNT(title) AS SIGNED),CAST(SUM(id) \
+            AS SIGNED) FROM {t} WHERE tenant=? LIMIT ?"
+        )))
+        .bind(99_i64)
+        .bind(1_i64)
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
         assert_eq!(empty, (0, 0, None));
         common::drop_table(&db, &t).await;
         db.close().await;
@@ -415,8 +456,16 @@ async fn optional_byte_null_guards_use_native_prepared_results_without_paginatio
                     truth,
                     (i64::from(value.is_none()), i64::from(value.is_some()))
                 );
-                let actual:Vec<Event>=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT id,tenant,priority,title,payload FROM {t} WHERE (? IS NULL OR payload=?) ORDER BY id")))
-                    .bind(value.clone()).bind(value.clone()).persistent(persistent).fetch_all(db.pool()).await.unwrap();
+                let actual: Vec<Event> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                    "SELECT id,tenant,priority,title,payload FROM {t} WHERE (? IS NULL OR \
+                    payload=?) ORDER BY id"
+                )))
+                .bind(value.clone())
+                .bind(value.clone())
+                .persistent(persistent)
+                .fetch_all(db.pool())
+                .await
+                .unwrap();
                 let expected: Vec<_> = events()
                     .into_iter()
                     .filter(|r| value.as_ref().is_none_or(|v| r.payload.as_ref() == Some(v)))
@@ -439,9 +488,19 @@ async fn composed_optional_mutations_commit_rollback_drop_then_page_outside_tran
             let t = seed(&db).await;
             let mut c = db.pool().acquire().await.unwrap();
             let mut tx = c.begin().await.unwrap();
-            sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE {t} SET title=?,priority=priority+? WHERE (? IS NULL OR tenant=?) AND (? IS NULL OR payload=?)")))
-                .bind("changed ? '\\中\0").bind(10_i64).bind(Some(1_i64)).bind(Some(1_i64)).bind(None::<Vec<u8>>).bind(None::<Vec<u8>>)
-                .execute(&mut *tx).await.unwrap();
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "UPDATE {t} SET title=?,priority=priority+? WHERE (? IS NULL OR tenant=?) \
+                AND (? IS NULL OR payload=?)"
+            )))
+            .bind("changed ? '\\中\0")
+            .bind(10_i64)
+            .bind(Some(1_i64))
+            .bind(Some(1_i64))
+            .bind(None::<Vec<u8>>)
+            .bind(None::<Vec<u8>>)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
             sqlx::query(sqlx::AssertSqlSafe(format!(
                 "DELETE FROM {t} WHERE tenant=? AND (? IS NULL OR payload=?)"
             )))
@@ -533,7 +592,10 @@ async fn cancelled_and_lost_paginated_results_are_not_replayed_and_connection_re
                     if lost {
                         assert!(future.await.is_err());
                     } else {
-                        tokio::select! {_=&mut future=>panic!("result did not pause"),_=p.reached()=>{}}
+                        tokio::select! {
+                            _ = &mut future => panic!("result did not pause"),
+                            _ = p.reached() => {}
+                        }
                     }
                 }
                 assert_ne!(p.fault_reply(), 255);

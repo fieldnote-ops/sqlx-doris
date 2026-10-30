@@ -34,7 +34,7 @@ commands = [
         "--check",
         *["patches/sqlx-mysql/" + name for name in modified],
     ],
-    ["cargo", "fmt", "--all", "--", "--check"],
+    [sys.executable, "-B", "scripts/format", "--check"],
     [
         "cargo",
         "clippy",

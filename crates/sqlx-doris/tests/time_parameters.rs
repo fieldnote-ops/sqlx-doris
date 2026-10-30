@@ -60,7 +60,8 @@ fn values() -> Vec<MySqlTime> {
 async fn table(db: &Client) -> sqlx_doris::operations::TableName {
     let t = common::name();
     let schema = if db.backend() == Backend::Doris {
-        "(id BIGINT,t VARCHAR(64),b STRING,n BIGINT) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
+        "(id BIGINT,t VARCHAR(64),b STRING,n BIGINT) UNIQUE KEY(id) DISTRIBUTED BY \
+            HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
     } else {
         "(id BIGINT PRIMARY KEY,t TIME(6),b LONGBLOB,n BIGINT)"
     };
@@ -348,7 +349,10 @@ async fn cancelled_and_lost_time_writes_are_never_replayed() {
                 if lost {
                     assert!(future.await.is_err());
                 } else {
-                    tokio::select! {_=&mut future=>panic!("write did not pause"),_=p.reached()=>{}}
+                    tokio::select! {
+                        _ = &mut future => panic!("write did not pause"),
+                        _ = p.reached() => {}
+                    }
                 }
             }
             assert_eq!(p.fault_reply(), 0);
@@ -472,7 +476,10 @@ async fn cancelled_time_results_drain_safely_without_replay() {
                 };
                 let future = q.fetch_one(db.pool());
                 tokio::pin!(future);
-                tokio::select! {_=&mut future=>panic!("result did not pause"),_=p.reached()=>{}}
+                tokio::select! {
+                    _ = &mut future => panic!("result did not pause"),
+                    _ = p.reached() => {}
+                }
             }
             p.release();
             let got: MySqlTime = sqlx::query_scalar("SELECT CAST(? AS TIME(6))")

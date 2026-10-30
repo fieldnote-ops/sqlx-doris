@@ -26,7 +26,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
         let definition = if backend == Backend::Doris {
-            "(id BIGINT NOT NULL,v BIGINT NOT NULL) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
+            "(id BIGINT NOT NULL,v BIGINT NOT NULL) DUPLICATE KEY(id) DISTRIBUTED BY \
+                HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
         } else {
             "(id BIGINT NOT NULL,v BIGINT NOT NULL)"
         };
@@ -74,7 +75,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(rows, [(1, 3), (1, 3), (1, 3), (1, 3), (2, 6)]);
         connection.close().await?;
         println!(
-            "{backend:?}: direct application SQLx query, cache, uncached and bind paths passed; exactly five stored rows"
+            "{backend:?}: direct application SQLx query, cache, uncached and bind paths \
+                passed; exactly five stored rows"
         );
         // Native Transaction has the application's own SQLx MySql identity.
         let mut tx: ::sqlx::Transaction<'_, ::sqlx::MySql> = db.pool().begin().await?;
@@ -116,14 +118,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
         assert_eq!(count, 7);
         println!(
-            "{backend:?}: native application Transaction bind/text mix and commit/rollback/drop passed"
+            "{backend:?}: native application Transaction bind/text mix and \
+                commit/rollback/drop passed"
         );
         ::sqlx::raw_sql(::sqlx::AssertSqlSafe(format!("DROP TABLE {table}")))
             .execute(db.pool())
             .await?;
         let binary_table = format!("{table}_binary_time");
         let columns = if backend == Backend::Doris {
-            "(id BIGINT,b STRING,t VARCHAR(64)) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
+            "(id BIGINT,b STRING,t VARCHAR(64)) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) \
+                BUCKETS 1 PROPERTIES('replication_num'='1')"
         } else {
             "(id BIGINT PRIMARY KEY,b LONGBLOB,t TIME(6))"
         };
@@ -189,7 +193,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?;
         assert_eq!(selected, (1, bytes.clone(), time));
         println!(
-            "{backend:?}: application's native WHERE b=? and byte bind preserved raw bytes and signed TIME without manual HEX"
+            "{backend:?}: application's native WHERE b=? and byte bind preserved raw \
+                bytes and signed TIME without manual HEX"
         );
         let included: Vec<i64> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
             "SELECT id FROM {binary_table} WHERE b IN(?,?) ORDER BY id"
@@ -238,7 +243,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
         assert_eq!(count, 2);
         println!(
-            "{backend:?}: application's native BLOB IN/NOT IN binds preserved NULLs and transaction outcomes"
+            "{backend:?}: application's native BLOB IN/NOT IN binds preserved NULLs and \
+                transaction outcomes"
         );
         let mut tx = db.pool().begin().await?;
         ::sqlx::query(::sqlx::AssertSqlSafe(format!(
@@ -316,7 +322,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
         assert_eq!(count, 2);
         println!(
-            "{backend:?}: application's native <>/!=/<=> byte binds preserved NULL truth and transaction outcomes"
+            "{backend:?}: application's native <>/!=/<=> byte binds preserved NULL truth \
+                and transaction outcomes"
         );
         let negative = ::sqlx::mysql::types::MySqlTime::new(
             ::sqlx::mysql::types::MySqlTimeSign::Negative,
@@ -355,7 +362,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .await?;
         assert!(null.is_none());
         println!(
-            "{backend:?}: application's native outside-transaction TIME binds and original DTO preserved signed microseconds, NULL and cache"
+            "{backend:?}: application's native outside-transaction TIME binds and \
+                original DTO preserved signed microseconds, NULL and cache"
         );
         let actual: Vec<i64> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
             "SELECT id FROM {binary_table} WHERE (b IN(?,NULL) OR t<=>?) AND NOT(t<>?) ORDER BY id"
@@ -367,7 +375,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
         assert_eq!(actual, [1, 2]);
         println!(
-            "{backend:?}: application's original mixed byte/TIME predicate and ordered binds preserved NULL truth"
+            "{backend:?}: application's original mixed byte/TIME predicate and ordered \
+                binds preserved NULL truth"
         );
         let zero = ::sqlx::mysql::types::MySqlTime::ZERO;
         ::sqlx::query(::sqlx::AssertSqlSafe(format!(
@@ -397,7 +406,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             assert!(ids.is_empty());
         }
         println!(
-            "{backend:?}: application's original TIME IN/NOT IN binds preserved zero, mixed strings, NULL and cache"
+            "{backend:?}: application's original TIME IN/NOT IN binds preserved zero, \
+                mixed strings, NULL and cache"
         );
         for persistent in [true, true, false] {
             let ids: Vec<i64> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
@@ -419,7 +429,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             assert!(ids.is_empty());
         }
         println!(
-            "{backend:?}: application's original byte range binds preserved ordering, NULL and cache"
+            "{backend:?}: application's original byte range binds preserved ordering, \
+                NULL and cache"
         );
         for persistent in [true, true, false] {
             let ids: Vec<i64> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
@@ -442,19 +453,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             assert_eq!(ids, [1, 2]);
         }
         println!(
-            "{backend:?}: application's original BETWEEN/NOT BETWEEN preserved inclusive boundaries, NULL false-range truth and cache"
+            "{backend:?}: application's original BETWEEN/NOT BETWEEN preserved inclusive \
+                boundaries, NULL false-range truth and cache"
         );
         ::sqlx::raw_sql(::sqlx::AssertSqlSafe(format!("DROP TABLE {binary_table}")))
             .execute(db.pool())
             .await?;
         println!(
-            "{backend:?}: application's native Vec<u8>/MySqlTime binds preserved binary bytes, signed microseconds and transaction outcomes"
+            "{backend:?}: application's native Vec<u8>/MySqlTime binds preserved binary \
+                bytes, signed microseconds and transaction outcomes"
         );
         let defaults_table = format!("{table}_defaults");
         let schema = if backend == Backend::Doris {
-            "(id BIGINT NOT NULL DEFAULT '42',title VARCHAR(64) NULL DEFAULT 'fresh',n BIGINT NULL DEFAULT '7',opt BIGINT NULL DEFAULT NULL) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
+            "(id BIGINT NOT NULL DEFAULT '42',title VARCHAR(64) NULL DEFAULT 'fresh',n \
+                BIGINT NULL DEFAULT '7',opt BIGINT NULL DEFAULT NULL) UNIQUE KEY(id) \
+                DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
         } else {
-            "(id BIGINT NOT NULL PRIMARY KEY DEFAULT '42',title VARCHAR(64) NULL DEFAULT 'fresh',n BIGINT NULL DEFAULT '7',opt BIGINT NULL DEFAULT NULL)"
+            "(id BIGINT NOT NULL PRIMARY KEY DEFAULT '42',title VARCHAR(64) NULL DEFAULT \
+                'fresh',n BIGINT NULL DEFAULT '7',opt BIGINT NULL DEFAULT NULL)"
         };
         ::sqlx::query(::sqlx::AssertSqlSafe(format!(
             "CREATE TABLE {defaults_table}{schema}"
@@ -541,13 +557,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .execute(db.pool())
         .await?;
         println!(
-            "{backend:?}: application's original named-column VALUE batches, DEFAULT/NULL and all-DEFAULT transaction writes preserved native MySql and cache"
+            "{backend:?}: application's original named-column VALUE batches, \
+                DEFAULT/NULL and all-DEFAULT transaction writes preserved native MySql and \
+                cache"
         );
         println!(
-            "{backend:?}: application's original optional filters and bound LIMIT/OFFSET pagination preserved native MySql"
+            "{backend:?}: application's original optional filters and bound LIMIT/OFFSET \
+                pagination preserved native MySql"
         );
         println!(
-            "{backend:?}: application's same INSERT binds preserved native conflict semantics and receipts"
+            "{backend:?}: application's same INSERT binds preserved native conflict \
+                semantics and receipts"
         );
         db.close().await;
     }

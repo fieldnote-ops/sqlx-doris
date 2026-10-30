@@ -67,7 +67,13 @@ async fn largeint_128_bits_are_exact_through_text_and_prepared_results() {
 async fn decimal256_preserves_all_76_digits_and_30_decimal_places() {
     let mut c = connect().await;
     c.execute("SET enable_decimal256 = true").await.unwrap();
-    for row in both(&mut c,"SELECT CAST('9999999999999999999999999999999999999999999999.123456789012345678901234567890' AS DECIMAL(76,30))").await {
+    for row in both(
+        &mut c,
+        "SELECT CAST('9999999999999999999999999999999999999999999999.123456789012345678901234567890' \
+        AS DECIMAL(76,30))"
+    )
+    .await
+    {
         let value:BigDecimal=row.try_get(0).unwrap();
         assert_eq!(value,BigDecimal::from_str(DECIMAL).unwrap());
         assert_eq!(value.as_bigint_and_exponent().1,30);
@@ -110,7 +116,8 @@ async fn variant_large_json_number_is_exact_and_json_null_is_preserved() {
     let mut c = connect().await;
     for row in both(
         &mut c,
-        "SELECT CAST('{\"n\":170141183460469231731687303715884105727,\"a\":[1,null]}' AS VARIANT)",
+        "SELECT CAST('{\"n\":170141183460469231731687303715884105727,\"a\":[1,\
+            null]}' AS VARIANT)",
     )
     .await
     {

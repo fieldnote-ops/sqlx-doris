@@ -22,10 +22,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "9999999999999999999999999999999999999999999999.123456789012345678901234567890",
     )?;
     let items = Array(vec![Some(LargeInt(i128::MIN)), None, Some(wide)]);
-    let actual=sqlx::query_as!(NativeRow,
-        "SELECT CAST(? AS LARGEINT) AS `wide!: LargeInt`,CAST(? AS DECIMAL(76,30)) AS `amount!: BigDecimal`,TO_JSON(CAST(? AS ARRAY<LARGEINT>)) AS `items!: Array<Option<LargeInt>>`",
-        wide,amount,items
-    ).fetch_one(db.pool()).await?;
+    let actual = sqlx::query_as!(
+        NativeRow,
+        "SELECT CAST(? AS LARGEINT) AS `wide!: LargeInt`,CAST(? AS DECIMAL(76,30)) \
+            AS `amount!: BigDecimal`,TO_JSON(CAST(? AS ARRAY<LARGEINT>)) AS `items!: \
+            Array<Option<LargeInt>>`",
+        wide,
+        amount,
+        items
+    )
+    .fetch_one(db.pool())
+    .await?;
     assert_eq!(
         actual,
         NativeRow {

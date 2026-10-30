@@ -37,7 +37,8 @@ async fn create(db: &Client) -> TableName {
     } else {
         // Doris cannot store native VARBINARY or TIME OLAP columns. This is
         // fixture DDL, not an automatic schema/type or application-data rewrite.
-        "(id BIGINT,b STRING,t VARCHAR(64)) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
+        "(id BIGINT,b STRING,t VARCHAR(64)) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) \
+            BUCKETS 1 PROPERTIES('replication_num'='1')"
     };
     db.pool()
         .execute(sqlx::AssertSqlSafe(format!(
@@ -451,7 +452,10 @@ async fn blob_time_cancelled_write_and_uncertain_commit_are_not_replayed() {
                         .unwrap();
                     let future = tx.commit();
                     tokio::pin!(future);
-                    tokio::select! {_ = &mut future=>panic!("commit completed before fault"),_=p.reached()=>{}}
+                    tokio::select! {
+                        _ = &mut future => panic!("commit completed before fault"),
+                        _ = p.reached() => {}
+                    }
                 } else {
                     {
                         let future = sqlx::query(sqlx::AssertSqlSafe(sql.clone()))
@@ -460,7 +464,10 @@ async fn blob_time_cancelled_write_and_uncertain_commit_are_not_replayed() {
                             .bind(signed_time())
                             .execute(&mut *tx);
                         tokio::pin!(future);
-                        tokio::select! {_= &mut future=>panic!("write completed before fault"),_=p.reached()=>{}}
+                        tokio::select! {
+                            _ = &mut future => panic!("write completed before fault"),
+                            _ = p.reached() => {}
+                        }
                     }
                     drop(tx);
                 }
@@ -622,7 +629,8 @@ async fn binary_multirow_values_preserve_precision_atomicity_and_native_duplicat
         let db = client(backend).await;
         let table = common::name();
         let schema = if backend == Backend::Doris {
-            "(id BIGINT NOT NULL,b STRING,n DECIMAL(38,0) NOT NULL) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
+            "(id BIGINT NOT NULL,b STRING,n DECIMAL(38,0) NOT NULL) UNIQUE KEY(id) \
+                DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
         } else {
             "(id BIGINT PRIMARY KEY,b LONGBLOB,n DECIMAL(38,0) NOT NULL)"
         };

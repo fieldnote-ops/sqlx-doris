@@ -33,7 +33,14 @@ async fn scalar_boundaries_and_nulls_round_trip_through_the_same_binding_and_dto
         let db = common::client(backend).await;
         let table = common::name();
         if backend == Backend::MySql {
-            db.pool().execute(sqlx::AssertSqlSafe(format!("CREATE TABLE {table} (id BIGINT PRIMARY KEY,b BOOLEAN,tiny TINYINT,small SMALLINT,n INT,big BIGINT,f FLOAT,d DOUBLE,name VARCHAR(255),fixed CHAR(5),day DATE,created DATETIME(6),j JSON,amount DECIMAL(38,10))"))).await.unwrap();
+            db.pool()
+                .execute(sqlx::AssertSqlSafe(format!(
+                    "CREATE TABLE {table} (id BIGINT PRIMARY KEY,b BOOLEAN,tiny TINYINT,small \
+                SMALLINT,n INT,big BIGINT,f FLOAT,d DOUBLE,name VARCHAR(255),fixed CHAR(5),\
+                day DATE,created DATETIME(6),j JSON,amount DECIMAL(38,10))"
+                )))
+                .await
+                .unwrap();
         } else {
             let mut schema = TableDefinition::new(table.clone(), TableModel::Unique, ["id"]);
             for (name, kind) in [
@@ -101,7 +108,7 @@ async fn scalar_boundaries_and_nulls_round_trip_through_the_same_binding_and_dto
                 j: Some(Variant(if minimum {
                     serde_json::Value::Null
                 } else {
-                    serde_json::json!({"n":u64::MAX,"a":[null]})
+                    serde_json::json!({ "n": u64::MAX, "a": [null] })
                 })),
                 amount: Some(
                     BigDecimal::from_str(if minimum {
@@ -426,7 +433,8 @@ async fn decimal256_in_arrays_and_numeric_maps_preserves_sign_scale_and_nulls() 
     ]);
     let mapped = Map(vec![(1, Some(negative)), (2, None), (3, Some(zero))]);
     sqlx::query(sqlx::AssertSqlSafe(format!(
-        "INSERT INTO {table} VALUES (?,CAST(? AS ARRAY<{decimal}>),CAST(? AS MAP<INT,{decimal}>))"
+        "INSERT INTO {table} VALUES (?,CAST(? AS ARRAY<{decimal}>),CAST(? AS MAP<INT,\
+            {decimal}>))"
     )))
     .bind(1_i64)
     .bind(&values)
@@ -533,7 +541,20 @@ async fn boolean_date_timestamp_and_ip_collections_round_trip_in_a_non_utc_sessi
             None,
         ]),
     );
-    sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {table} VALUES (?,CAST(? AS ARRAY<BOOLEAN>),CAST(? AS ARRAY<DATE>),CAST(? AS ARRAY<DATETIME(6)>),CAST(? AS ARRAY<TIMESTAMPTZ(6)>),CAST(? AS ARRAY<IPV6>))"))).bind(expected.0).bind(&expected.1).bind(&expected.2).bind(&expected.3).bind(&expected.4).bind(&expected.5).execute(db.pool()).await.unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "INSERT INTO {table} VALUES (?,CAST(? AS ARRAY<BOOLEAN>),CAST(? AS \
+        ARRAY<DATE>),CAST(? AS ARRAY<DATETIME(6)>),CAST(? AS ARRAY<TIMESTAMPTZ(6)>),\
+        CAST(? AS ARRAY<IPV6>))"
+    )))
+    .bind(expected.0)
+    .bind(&expected.1)
+    .bind(&expected.2)
+    .bind(&expected.3)
+    .bind(&expected.4)
+    .bind(&expected.5)
+    .execute(db.pool())
+    .await
+    .unwrap();
     let mut select = schema.select_builder().unwrap();
     let actual: TemporalRow = select.build_query_as().fetch_one(db.pool()).await.unwrap();
     assert_eq!(actual, expected);
@@ -621,7 +642,12 @@ async fn known_gap_variant_normalizes_empty_values_while_json_keeps_the_original
         serde_json::json!("123"),
         serde_json::json!(123),
         serde_json::json!(true),
-        serde_json::json!({"a":null,"b":[],"c":{},"n":42}),
+        serde_json::json!({
+            "a": null,
+            "b": [],
+            "c": {},
+            "n": 42
+        }),
     ];
     for (id, input) in inputs.iter().enumerate() {
         sqlx::query(sqlx::AssertSqlSafe(format!(

@@ -60,7 +60,14 @@ async fn create(db: &Client, auto: bool) -> TableName {
     } else {
         ""
     };
-    db.pool().execute(sqlx::AssertSqlSafe(format!("CREATE TABLE {t}({id},title VARCHAR(128) NULL DEFAULT 'fresh',priority BIGINT NULL DEFAULT '7',optional BIGINT NULL DEFAULT NULL,payload {binary},created DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)){suffix}"))).await.unwrap();
+    db.pool()
+        .execute(sqlx::AssertSqlSafe(format!(
+            "CREATE TABLE {t}({id},title VARCHAR(128) NULL DEFAULT 'fresh',priority \
+        BIGINT NULL DEFAULT '7',optional BIGINT NULL DEFAULT NULL,payload {binary},\
+        created DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)){suffix}"
+        )))
+        .await
+        .unwrap();
     t
 }
 #[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
@@ -161,8 +168,22 @@ async fn column_lists_default_null_and_bulk_share_one_business_dto_in_three_mode
             for persistent in [true, true, false] {
                 let before = now(&mut c).await;
                 let bytes: Vec<u8> = (0..=255).collect();
-                sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {t}(priority,id,title,payload,optional,created) VALUES(DEFAULT,?,DEFAULT,DEFAULT,DEFAULT,DEFAULT),(NULL,?,NULL,?,NULL,DEFAULT),(?,?,'DEFAULT',?,DEFAULT,DEFAULT)")))
-     .bind(base+1).bind(base+2).bind(None::<Vec<u8>>).bind(9_i64).bind(base+3).bind(&bytes).persistent(persistent).execute(&mut *c).await.unwrap();
+                sqlx::query(sqlx::AssertSqlSafe(format!(
+                    "INSERT INTO {t}(priority,id,title,payload,optional,created) \
+                    VALUES(DEFAULT,?,DEFAULT,DEFAULT,DEFAULT,DEFAULT),\
+                    (NULL,?,NULL,?,NULL,DEFAULT),\
+                    (?,?,'DEFAULT',?,DEFAULT,DEFAULT)"
+                )))
+                .bind(base + 1)
+                .bind(base + 2)
+                .bind(None::<Vec<u8>>)
+                .bind(9_i64)
+                .bind(base + 3)
+                .bind(&bytes)
+                .persistent(persistent)
+                .execute(&mut *c)
+                .await
+                .unwrap();
                 sqlx::query(sqlx::AssertSqlSafe(format!(
                     "INSERT INTO {t}(payload,id) VALUE(?,?)"
                 )))
@@ -181,7 +202,15 @@ async fn column_lists_default_null_and_bulk_share_one_business_dto_in_three_mode
                 .await
                 .unwrap();
                 let after = now(&mut c).await;
-                let actual:Vec<BusinessRow>=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT id,title,priority,optional,payload,created FROM {t} WHERE id>=? AND id<=? ORDER BY id"))).bind(base+1).bind(base+5).fetch_all(&mut *c).await.unwrap();
+                let actual: Vec<BusinessRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                    "SELECT id,title,priority,optional,payload,created FROM {t} WHERE id>=? AND \
+                    id<=? ORDER BY id"
+                )))
+                .bind(base + 1)
+                .bind(base + 5)
+                .fetch_all(&mut *c)
+                .await
+                .unwrap();
                 assert_eq!(actual.len(), 5);
                 defaults(&actual[0]);
                 expect(
@@ -231,7 +260,8 @@ async fn column_lists_default_null_and_bulk_share_one_business_dto_in_three_mode
             }
         }
         eprintln!(
-            "{b:?}: 45 business rows, three sql modes and cached/uncached column/default/NULL templates verified"
+            "{b:?}: 45 business rows, three sql modes and cached/uncached \
+                column/default/NULL templates verified"
         );
         drop(c);
         common::drop_table(&db, &t).await;
@@ -416,7 +446,8 @@ async fn all_default_bulk_and_omitted_columns_keep_server_auto_ids_and_defaults(
         for action in ["autocommit", "commit", "rollback", "drop"] {
             let t = create(&db, true).await;
             let sql = format!(
-                "INSERT INTO {t} VALUES(DEFAULT,DEFAULT,DEFAULT,DEFAULT,DEFAULT,DEFAULT),(DEFAULT,DEFAULT,DEFAULT,DEFAULT,DEFAULT,DEFAULT)"
+                "INSERT INTO {t} VALUES(DEFAULT,DEFAULT,DEFAULT,DEFAULT,DEFAULT,DEFAULT),\
+                    (DEFAULT,DEFAULT,DEFAULT,DEFAULT,DEFAULT,DEFAULT)"
             );
             if action == "autocommit" {
                 sqlx::query(sqlx::AssertSqlSafe(sql.clone()))
@@ -627,7 +658,8 @@ async fn current_timestamp_default_batch_granularity_remains_a_server_semantic_c
                 assert!(distinct.len() > 1);
             }
             eprintln!(
-                "{b:?}/BE-fold={fold}: CURRENT_TIMESTAMP(6) default distinct values per four-row batch = {} (server semantics, not cross-db equivalence)",
+                "{b:?}/BE-fold={fold}: CURRENT_TIMESTAMP(6) default distinct values per \
+                    four-row batch = {} (server semantics, not cross-db equivalence)",
                 distinct.len()
             );
             c.execute(sqlx::AssertSqlSafe(format!("DELETE FROM {t}")))
@@ -677,7 +709,8 @@ async fn bulk_defaults_cancel_and_lost_replies_never_replay_whole_or_partial_bat
                         };
                         let (db, p) = proxied(b, mode).await;
                         let body = if all_default {
-                            "VALUES(DEFAULT,DEFAULT,DEFAULT,DEFAULT,DEFAULT,DEFAULT),(DEFAULT,DEFAULT,DEFAULT,DEFAULT,DEFAULT,DEFAULT)"
+                            "VALUES(DEFAULT,DEFAULT,DEFAULT,DEFAULT,DEFAULT,DEFAULT),(DEFAULT,DEFAULT,\
+                                DEFAULT,DEFAULT,DEFAULT,DEFAULT)"
                         } else {
                             "(id,title,priority,payload) VALUE(?,?,DEFAULT,?),(?,DEFAULT,NULL,DEFAULT)"
                         };
@@ -705,7 +738,10 @@ async fn bulk_defaults_cancel_and_lost_replies_never_replay_whole_or_partial_bat
                                 if lost {
                                     assert!(future.await.is_err());
                                 } else {
-                                    tokio::select! {_=&mut future=>panic!("write did not pause"),_=p.reached()=>{}}
+                                    tokio::select! {
+                                        _ = &mut future => panic!("write did not pause"),
+                                        _ = p.reached() => {}
+                                    }
                                 }
                             }
                             drop(tx);
@@ -717,7 +753,10 @@ async fn bulk_defaults_cancel_and_lost_replies_never_replay_whole_or_partial_bat
                             if lost {
                                 assert!(future.await.is_err());
                             } else {
-                                tokio::select! {_=&mut future=>panic!("write did not pause"),_=p.reached()=>{}}
+                                tokio::select! {
+                                    _ = &mut future => panic!("write did not pause"),
+                                    _ = p.reached() => {}
+                                }
                             }
                         }
                         assert_eq!(p.fault_reply(), 0);

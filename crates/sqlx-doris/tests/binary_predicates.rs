@@ -66,7 +66,8 @@ fn payloads() -> Vec<Option<Vec<u8>>> {
 async fn seed(db: &Client) -> TableName {
     let table = common::name();
     let schema = if db.backend() == Backend::Doris {
-        "(id BIGINT,b STRING,t VARCHAR(64),n BIGINT) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
+        "(id BIGINT,b STRING,t VARCHAR(64),n BIGINT) UNIQUE KEY(id) DISTRIBUTED BY \
+            HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
     } else {
         "(id BIGINT PRIMARY KEY,b LONGBLOB,t TIME(6),n BIGINT)"
     };
@@ -209,7 +210,15 @@ async fn byte_predicate_aliases_reverse_parentheses_compound_conditions_and_quer
                     "{backend:?}/{fold}/{condition}"
                 );
             }
-            let actual:Vec<i64>=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT a.id FROM {table} a JOIN {table} c ON a.b=? AND c.id=a.id WHERE c.b=? ORDER BY a.id"))).bind(&bytes).bind(&bytes).fetch_all(&mut *c).await.unwrap();
+            let actual: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                "SELECT a.id FROM {table} a JOIN {table} c ON a.b=? AND c.id=a.id WHERE \
+                c.b=? ORDER BY a.id"
+            )))
+            .bind(&bytes)
+            .bind(&bytes)
+            .fetch_all(&mut *c)
+            .await
+            .unwrap();
             assert_eq!(actual, [1]);
             let mut q =
                 sqlx::QueryBuilder::<sqlx::MySql>::new(format!("SELECT id FROM {table} WHERE (b="));
@@ -262,8 +271,19 @@ async fn prepared_cache_separates_byte_and_string_shapes_and_preserves_other_arg
             .unwrap()
             .and_hms_micro_opt(12, 34, 56, 123456)
             .unwrap();
-        let actual:Vec<i64>=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT id FROM {table} WHERE b=? AND ?>=0 AND ?='name' AND CAST(? AS DATETIME(6))=CAST('2026-10-28 12:34:56.123456' AS DATETIME(6)) AND CAST(? AS DECIMAL(38,6))=123.456789")))
-            .bind(payloads()[0].clone().unwrap()).bind(7_i64).bind("name").bind(time).bind(bigdecimal::BigDecimal::from_str("123.456789").unwrap()).fetch_all(&mut *c).await.unwrap();
+        let actual: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT id FROM {table} WHERE b=? AND ?>=0 AND ?='name' AND CAST(? AS \
+            DATETIME(6))=CAST('2026-10-28 12:34:56.123456' AS DATETIME(6)) AND CAST(? \
+            AS DECIMAL(38,6))=123.456789"
+        )))
+        .bind(payloads()[0].clone().unwrap())
+        .bind(7_i64)
+        .bind("name")
+        .bind(time)
+        .bind(bigdecimal::BigDecimal::from_str("123.456789").unwrap())
+        .fetch_all(&mut *c)
+        .await
+        .unwrap();
         assert_eq!(actual, [1]);
         for fold in [false, true] {
             if backend == Backend::Doris {
@@ -500,7 +520,10 @@ async fn byte_write_faults(conditions: &[&str]) {
                             if lost {
                                 assert!(future.await.is_err());
                             } else {
-                                tokio::select! {_= &mut future=>panic!("write did not pause"),_=p.reached()=>{}}
+                                tokio::select! {
+                                    _ = &mut future => panic!("write did not pause"),
+                                    _ = p.reached() => {}
+                                }
                             }
                         }
                         drop(tx);
@@ -512,7 +535,10 @@ async fn byte_write_faults(conditions: &[&str]) {
                         if lost {
                             assert!(future.await.is_err());
                         } else {
-                            tokio::select! {_= &mut future=>panic!("write did not pause"),_=p.reached()=>{}}
+                            tokio::select! {
+                                _ = &mut future => panic!("write did not pause"),
+                                _ = p.reached() => {}
+                            }
                         }
                     }
                     assert_eq!(p.fault_reply(), 0);
@@ -601,7 +627,8 @@ async fn native_blob_in_and_not_in_preserve_three_valued_null_semantics() {
                 }
                 for list in &lists {
                     let sql = format!(
-                        "SELECT id,CAST(b IN(?,?,?) AS SIGNED),CAST(b NOT IN(?,?,?) AS SIGNED) FROM {table} ORDER BY id"
+                        "SELECT id,CAST(b IN(?,?,?) AS SIGNED),CAST(b NOT IN(?,?,?) AS SIGNED) FROM \
+                            {table} ORDER BY id"
                     );
                     let mut q = sqlx::query_as(sqlx::AssertSqlSafe(sql));
                     for _ in 0..2 {
@@ -688,7 +715,16 @@ async fn membership_mixed_strings_null_literals_and_native_prepared_cache_work()
                 .unwrap();
             assert_eq!(actual, [1, 9]);
         }
-        let actual:Vec<(i64,Option<i64>)>=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT a.id,CAST((a.`b`) NOT IN(((?)),(?),NULL,'A','',?) AS SIGNED) FROM {table} a ORDER BY a.id"))).bind(payloads()[0].clone()).bind("a").bind(None::<i64>).fetch_all(&mut *c).await.unwrap();
+        let actual: Vec<(i64, Option<i64>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT a.id,CAST((a.`b`) NOT IN(((?)),(?),NULL,'A','',?) AS SIGNED) FROM \
+            {table} a ORDER BY a.id"
+        )))
+        .bind(payloads()[0].clone())
+        .bind("a")
+        .bind(None::<i64>)
+        .fetch_all(&mut *c)
+        .await
+        .unwrap();
         assert_eq!(
             actual,
             [
@@ -983,7 +1019,16 @@ async fn byte_not_equal_and_null_safe_comparisons_keep_projection_and_where_null
                 }
                 for op in ["<>", "!=", "<=>"] {
                     for candidate in &values {
-                        let actual:Vec<(i64,Option<i64>,Option<i64>)>=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT id,CAST(b {op} ? AS SIGNED),CAST(? {op} b AS SIGNED) FROM {table} ORDER BY id"))).bind(candidate).bind(candidate).fetch_all(&mut *c).await.unwrap();
+                        let actual: Vec<(i64, Option<i64>, Option<i64>)> =
+                            sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                                "SELECT id,CAST(b {op} ? AS SIGNED),CAST(? {op} b AS SIGNED) \
+                                FROM {table} ORDER BY id"
+                            )))
+                            .bind(candidate)
+                            .bind(candidate)
+                            .fetch_all(&mut *c)
+                            .await
+                            .unwrap();
                         let expected: Vec<_> = values
                             .iter()
                             .enumerate()
@@ -1076,7 +1121,16 @@ async fn comparison_original_templates_cache_aliases_joins_and_binary_results_wo
                 }
             }
         }
-        let actual:Vec<i64>=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT a.id FROM {table} a JOIN {table} c ON ((a.`b`))<=>((?)) AND a.id=c.id WHERE c.b!=? AND NOT (?<>a.b) ORDER BY a.id"))).bind(payloads()[0].clone()).bind(vec![255_u8]).bind(payloads()[0].clone()).fetch_all(&mut *c).await.unwrap();
+        let actual: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT a.id FROM {table} a JOIN {table} c ON ((a.`b`))<=>((?)) AND \
+            a.id=c.id WHERE c.b!=? AND NOT (?<>a.b) ORDER BY a.id"
+        )))
+        .bind(payloads()[0].clone())
+        .bind(vec![255_u8])
+        .bind(payloads()[0].clone())
+        .fetch_all(&mut *c)
+        .await
+        .unwrap();
         assert_eq!(actual, [1]);
         let mut q =
             sqlx::QueryBuilder::<sqlx::MySql>::new(format!("SELECT id FROM {table} WHERE (b<=>"));

@@ -124,12 +124,24 @@ for label, source, dependency, patch, default_features in cases:
     rust = "\n".join(
         line[2:] if line.startswith("# ") else line for line in snippet[1].splitlines()
     )
-    identity = """
-pub fn same_pool(v: sqlx_doris::MySqlPool) -> ::sqlx::MySqlPool { v }
-pub fn same_database(v: sqlx_doris::sqlx::MySql) -> ::sqlx::MySql { v }
-pub fn same_connection(v: sqlx_doris::sqlx::MySqlConnection) -> ::sqlx::MySqlConnection { v }
-pub fn same_row(v: sqlx_doris::sqlx::mysql::MySqlRow) -> ::sqlx::mysql::MySqlRow { v }
-pub fn same_transaction<'a>(v: sqlx_doris::sqlx::Transaction<'a, sqlx_doris::sqlx::MySql>) -> ::sqlx::Transaction<'a, ::sqlx::MySql> { v }
+    identity = r"""
+pub fn same_pool(v: sqlx_doris::MySqlPool) -> ::sqlx::MySqlPool {
+    v
+}
+pub fn same_database(v: sqlx_doris::sqlx::MySql) -> ::sqlx::MySql {
+    v
+}
+pub fn same_connection(v: sqlx_doris::sqlx::MySqlConnection) -> ::sqlx::MySqlConnection {
+    v
+}
+pub fn same_row(v: sqlx_doris::sqlx::mysql::MySqlRow) -> ::sqlx::mysql::MySqlRow {
+    v
+}
+pub fn same_transaction<'a>(
+    v: sqlx_doris::sqlx::Transaction<'a, sqlx_doris::sqlx::MySql>,
+) -> ::sqlx::Transaction<'a, ::sqlx::MySql> {
+    v
+}
 """
     (directory / "src/lib.rs").write_text(rust + identity)
     (directory / "src/main.rs").write_bytes(
@@ -239,12 +251,20 @@ pub fn same_transaction<'a>(v: sqlx_doris::sqlx::Transaction<'a, sqlx_doris::sql
                 try:
                     with (directory / "src/lib.rs").open("a") as lib:
                         lib.write(
-                            """
+                            r"""
 pub async fn zero_argument_macro(pool: &::sqlx::MySqlPool) -> ::sqlx::Result<()> {
-    let before: i64 = ::sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_doris_consumer_macro_prepare").fetch_one(pool).await?;
-    let result = ::sqlx::query!("INSERT INTO _sqlx_doris_consumer_macro_prepare VALUES (1,3)").execute(pool).await?;
+    let before: i64 =
+        ::sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_doris_consumer_macro_prepare")
+            .fetch_one(pool)
+            .await?;
+    let result = ::sqlx::query!("INSERT INTO _sqlx_doris_consumer_macro_prepare VALUES (1,3)")
+        .execute(pool)
+        .await?;
     assert_eq!(result.rows_affected(), 1);
-    let after: i64 = ::sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_doris_consumer_macro_prepare").fetch_one(pool).await?;
+    let after: i64 =
+        ::sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_doris_consumer_macro_prepare")
+            .fetch_one(pool)
+            .await?;
     assert_eq!(after, before + 1);
     Ok(())
 }
@@ -252,11 +272,16 @@ pub async fn zero_argument_macro(pool: &::sqlx::MySqlPool) -> ::sqlx::Result<()>
                         )
                     (directory / "src/bin").mkdir()
                     (directory / "src/bin/consumer-macro.rs").write_text(
-                        """
+                        r"""
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    for (backend,key) in [(sqlx_doris::Backend::MySql,"MYSQL_TEST_URL"),(sqlx_doris::Backend::Doris,"DORIS_TEST_URL")] {
-        let db = sqlx_doris::PoolBuilder::new(backend).connect(&std::env::var(key)?).await?;
+    for (backend, key) in [
+        (sqlx_doris::Backend::MySql, "MYSQL_TEST_URL"),
+        (sqlx_doris::Backend::Doris, "DORIS_TEST_URL"),
+    ] {
+        let db = sqlx_doris::PoolBuilder::new(backend)
+            .connect(&std::env::var(key)?)
+            .await?;
         sqlx_doris_consumer::zero_argument_macro(db.pool()).await?;
         db.close().await;
     }

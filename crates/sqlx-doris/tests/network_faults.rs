@@ -157,7 +157,10 @@ async fn query_future_cancellation_does_not_mix_the_late_result_with_the_next_qu
             let query = sqlx::raw_sql(sqlx::AssertSqlSafe(format!("SELECT 99 /* {MARKER} */")))
                 .fetch_all(db.pool());
             tokio::pin!(query);
-            tokio::select! { result=&mut query=>panic!("query finished before release: {result:?}"),_=proxy.reached()=>{} }
+            tokio::select! {
+                result = &mut query => panic!("query finished before release: {result:?}"),
+                _ = proxy.reached() => {}
+            }
         }
         proxy.release();
         let value: i64 = tokio::time::timeout(
@@ -193,7 +196,10 @@ async fn cancelling_doris_begin_or_execute_closes_the_owned_transaction_connecti
         if matches!(mode, Mode::PauseBegin) {
             let begin = db.doris_transaction();
             tokio::pin!(begin);
-            tokio::select! {result=&mut begin=>panic!("BEGIN completed before release: {result:?}"),_=proxy.reached()=>{} }
+            tokio::select! {
+                result = &mut begin => panic!("BEGIN completed before release: {result:?}"),
+                _ = proxy.reached() => {}
+            }
         } else {
             let mut tx = db.doris_transaction().await.unwrap();
             {
@@ -201,7 +207,10 @@ async fn cancelling_doris_begin_or_execute_closes_the_owned_transaction_connecti
                     "INSERT INTO {table} VALUES (1) /* {MARKER} */"
                 )));
                 tokio::pin!(execute);
-                tokio::select! {result=&mut execute=>panic!("execute completed before release: {result:?}"),_=proxy.reached()=>{} }
+                tokio::select! {
+                    result = &mut execute => panic!("execute completed before release: {result:?}"),
+                    _ = proxy.reached() => {}
+                }
             }
             assert!(matches!(
                 tx.commit().await.unwrap_err(),

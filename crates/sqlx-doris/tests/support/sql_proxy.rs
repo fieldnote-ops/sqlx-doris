@@ -309,5 +309,8 @@ async fn serve(
         }
         Ok::<_, io::Error>(())
     };
-    tokio::select! {result=sending=>result,result=receiving=>result}
+    tokio::select! {
+        result = sending => result,
+        result = receiving => result
+    }
 }

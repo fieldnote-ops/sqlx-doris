@@ -50,7 +50,9 @@ fn clock(us: i64) -> MySqlTime {
 async fn table(db: &Client, precision: u8) -> TableName {
     let t = common::name();
     let schema = if db.backend() == Backend::Doris {
-        "(id BIGINT,t VARCHAR(64),n BIGINT) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')".to_owned()
+        "(id BIGINT,t VARCHAR(64),n BIGINT) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) \
+            BUCKETS 1 PROPERTIES('replication_num'='1')"
+            .to_owned()
     } else {
         format!("(id BIGINT PRIMARY KEY,t TIME({precision}),n BIGINT)")
     };
@@ -98,9 +100,24 @@ async fn native_membership_and_public_normalization_source_controls() {
         .await
         .unwrap();
         assert_eq!(original, vec![1, 2]);
-        let normalized:Vec<i64>=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT id FROM {t} WHERE CAST(t AS TIME(6)) IN(CAST(? AS TIME(6)),CAST(? AS TIME(6))) ORDER BY id"))).bind("-00:00:00.000001").bind("00:00:00").fetch_all(db.pool()).await.unwrap();
+        let normalized: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT id FROM {t} WHERE CAST(t AS TIME(6)) IN(CAST(? AS TIME(6)),CAST(? AS \
+            TIME(6))) ORDER BY id"
+        )))
+        .bind("-00:00:00.000001")
+        .bind("00:00:00")
+        .fetch_all(db.pool())
+        .await
+        .unwrap();
         assert_eq!(normalized, [1, 2]);
-        let mixed:Vec<i64>=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT id FROM {t} WHERE CAST(t AS TIME(6)) IN(CAST(? AS TIME(6)),CAST('00:00:00' AS TIME(6))) ORDER BY id"))).bind("-00:00:00.000001").fetch_all(db.pool()).await.unwrap();
+        let mixed: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT id FROM {t} WHERE CAST(t AS TIME(6)) IN(CAST(? AS TIME(6)),\
+            CAST('00:00:00' AS TIME(6))) ORDER BY id"
+        )))
+        .bind("-00:00:00.000001")
+        .fetch_all(db.pool())
+        .await
+        .unwrap();
         assert_eq!(mixed, [1, 2]);
         if b == Backend::MySql {
             let actual: (String, String) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
@@ -114,7 +131,8 @@ async fn native_membership_and_public_normalization_source_controls() {
             eprintln!("MySQL source formatting control: {actual:?}");
         }
         eprintln!(
-            "{b:?} current native IN={original:?}; public normalized IN={normalized:?}; mixed={mixed:?}"
+            "{b:?} current native IN={original:?}; public normalized IN={normalized:?}; \
+                mixed={mixed:?}"
         );
         common::drop_table(&db, &t).await;
         db.close().await;
@@ -599,7 +617,10 @@ async fn zero_time_membership_cached_writes_cancel_or_lose_ack_without_replay() 
                             if lost {
                                 assert!(future.await.is_err());
                             } else {
-                                tokio::select! {_=&mut future=>panic!("write did not pause"),_=p.reached()=>{}}
+                                tokio::select! {
+                                    _ = &mut future => panic!("write did not pause"),
+                                    _ = p.reached() => {}
+                                }
                             }
                         }
                         drop(tx);
@@ -614,7 +635,10 @@ async fn zero_time_membership_cached_writes_cancel_or_lose_ack_without_replay() 
                             if lost {
                                 assert!(future.await.is_err());
                             } else {
-                                tokio::select! {_=&mut future=>panic!("write did not pause"),_=p.reached()=>{}}
+                                tokio::select! {
+                                    _ = &mut future => panic!("write did not pause"),
+                                    _ = p.reached() => {}
+                                }
                             }
                         }
                     }

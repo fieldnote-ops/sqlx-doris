@@ -83,7 +83,8 @@ fn compare(a: &Option<Vec<u8>>, b: &Option<Vec<u8>>, op: &str) -> Option<i64> {
 async fn seed(db: &Client) -> TableName {
     let t = common::name();
     let schema = if db.backend() == Backend::Doris {
-        "(id BIGINT,b STRING,n BIGINT) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
+        "(id BIGINT,b STRING,n BIGINT) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) \
+            BUCKETS 1 PROPERTIES('replication_num'='1')"
     } else {
         "(id BIGINT PRIMARY KEY,b LONGBLOB,n BIGINT)"
     };
@@ -137,7 +138,14 @@ async fn between_source_controls_native_parameters_and_public_hex() {
         .await
         .unwrap();
         assert_eq!(public, [17, 18]);
-        let nulls:(Option<i64>,Option<i64>,Option<i64>,Option<i64>)=sqlx::query_as("SELECT UNHEX('FF') BETWEEN NULL AND UNHEX('00'),UNHEX('FF') NOT BETWEEN NULL AND UNHEX('00'),UNHEX('00') BETWEEN UNHEX('FF') AND NULL,UNHEX('00') NOT BETWEEN UNHEX('FF') AND NULL").fetch_one(db.pool()).await.unwrap();
+        let nulls: (Option<i64>, Option<i64>, Option<i64>, Option<i64>) = sqlx::query_as(
+            "SELECT UNHEX('FF') BETWEEN NULL AND UNHEX('00'),UNHEX('FF') NOT BETWEEN \
+            NULL AND UNHEX('00'),UNHEX('00') BETWEEN UNHEX('FF') AND NULL,UNHEX('00') \
+            NOT BETWEEN UNHEX('FF') AND NULL",
+        )
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
         assert_eq!(nulls, (Some(0), Some(1), Some(0), Some(1)));
         eprintln!("{b:?} NULL false-range controls: {nulls:?}");
         common::drop_table(&db, &t).await;
@@ -355,7 +363,8 @@ async fn between_inclusive_reversed_and_null_bounds_match_independent_three_valu
             }
         }
         eprintln!(
-            "{b:?}: BETWEEN/NOT BETWEEN {count} independent-oracle SELECTs; NULL false-range semantics included"
+            "{b:?}: BETWEEN/NOT BETWEEN {count} independent-oracle SELECTs; NULL \
+                false-range semantics included"
         );
         drop(c);
         common::drop_table(&db, &t).await;
@@ -477,7 +486,17 @@ async fn between_cache_native_wire_querybuilder_lengths_and_boolean_scopes() {
                     );
                 }
             }
-            let ids:Vec<i64>=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT a.id FROM {t} a JOIN {t} r ON a.b BETWEEN ? AND ? AND r.id=a.id WHERE NOT(a.b NOT BETWEEN ? AND ?) ORDER BY a.id"))).bind(vec![255_u8]).bind(vec![255_u8,0]).bind(vec![255_u8]).bind(vec![255_u8,0]).fetch_all(&mut *c).await.unwrap();
+            let ids: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                "SELECT a.id FROM {t} a JOIN {t} r ON a.b BETWEEN ? AND ? AND r.id=a.id \
+                WHERE NOT(a.b NOT BETWEEN ? AND ?) ORDER BY a.id"
+            )))
+            .bind(vec![255_u8])
+            .bind(vec![255_u8, 0])
+            .bind(vec![255_u8])
+            .bind(vec![255_u8, 0])
+            .fetch_all(&mut *c)
+            .await
+            .unwrap();
             assert_eq!(ids, [17, 18]);
         }
         drop(c);
@@ -656,7 +675,10 @@ async fn cached_between_and_not_between_writes_cancel_or_lose_reply_without_repl
                                 if lost {
                                     assert!(future.await.is_err())
                                 } else {
-                                    tokio::select! {_=&mut future=>panic!("write did not pause"),_=p.reached()=>{}}
+                                    tokio::select! {
+                                        _ = &mut future => panic!("write did not pause"),
+                                        _ = p.reached() => {}
+                                    }
                                 }
                             }
                             drop(tx);
@@ -678,7 +700,10 @@ async fn cached_between_and_not_between_writes_cancel_or_lose_reply_without_repl
                             if lost {
                                 assert!(future.await.is_err())
                             } else {
-                                tokio::select! {_=&mut future=>panic!("write did not pause"),_=p.reached()=>{}}
+                                tokio::select! {
+                                    _ = &mut future => panic!("write did not pause"),
+                                    _ = p.reached() => {}
+                                }
                             }
                         }
                         assert_eq!(p.fault_reply(), 0);
@@ -822,7 +847,8 @@ async fn unsupported_between_shapes_send_zero_packets_and_preserve_prior_transac
         assert_eq!(n, if [17, 18].contains(&id) { 1 } else { 0 });
     }
     eprintln!(
-        "BETWEEN invalid shapes: {rejected} preflight errors sent zero packets; prior transaction write committed"
+        "BETWEEN invalid shapes: {rejected} preflight errors sent zero packets; \
+            prior transaction write committed"
     );
     common::drop_table(&db, &t).await;
     db.close().await;

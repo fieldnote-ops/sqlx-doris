@@ -325,7 +325,10 @@ async fn pending_write_reply_is_still_rejected_without_begin_or_replay() {
             "INSERT INTO {t} VALUES(1,42) /* {} */",
             proxy::MARKER
         ))));
-        tokio::select! {r=&mut write=>panic!("unexpected write result: {r:?}"),_=proxy.reached()=>{}}
+        tokio::select! {
+            r = &mut write => panic!("unexpected write result: {r:?}"),
+            _ = proxy.reached() => {}
+        }
     }
     assert_eq!(proxy.fault_reply(), 0, "the server accepted this one write");
     let error = conn.begin().await.unwrap_err();
@@ -384,7 +387,11 @@ async fn cancelled_metadata_or_next_row_is_not_an_acknowledged_row_boundary() {
             let mut next = Box::pin(rows.next());
             // Poll the read before accepting an already delivered proxy notification.
             // Otherwise cancellation might precede any attempt to read the next row.
-            tokio::select! {biased; r=&mut next=>panic!("unexpected row: {r:?}"),_=proxy.reached()=>{}}
+            tokio::select! {
+                biased;
+                r = &mut next => panic!("unexpected row: {r:?}"),
+                _ = proxy.reached() => {}
+            }
         }
         println!("read cancellation metadata={metadata}: reject BEGIN");
         let error = tokio::time::timeout(Duration::from_secs(10), conn.begin())

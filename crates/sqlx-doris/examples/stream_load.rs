@@ -16,7 +16,7 @@ async fn load(db: &Client, http: &StreamLoadClient, schema: &TableDefinition) ->
     let receipt = http
         .load_table(schema)?
         .label(format!("{}_batch_1", schema.name.table))
-        .send_json(&[serde_json::json!({"id":1,"name":"demo","tags":[text,null]})])
+        .send_json(&[serde_json::json!({ "id": 1, "name": "demo", "tags": [text, null] })])
         .await?;
     println!("{receipt}; state={:?}", receipt.state());
     operations::wait_until(

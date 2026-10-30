@@ -53,7 +53,10 @@ def reconstruct(project, build_root, output):
     )
     if archive is None:
         raise ValueError(
-            "exact original SQLx crate missing; run ./scripts/dev cargo fetch --locked --manifest-path tests/mysql-upstream/Cargo.toml"
+            (
+                "exact original SQLx crate missing; run ./scripts/dev cargo fetch "
+                "--locked --manifest-path tests/mysql-upstream/Cargo.toml"
+            )
         )
     original = archive_files(archive, f"sqlx-mysql-{version}/")
     expected = {**provenance["upstream_files"], **provenance["modified_files"]}

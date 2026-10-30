@@ -46,35 +46,56 @@ impl ReplyLoss {
             let mut tasks = JoinSet::new();
             loop {
                 tokio::select! {
-                    accepted=listener.accept()=>{let Ok((down,_))=accepted else{break};let address=upstream.clone();let hits=h.clone();let ok=ok.clone();tasks.spawn(async move {
-                        let mut up=TcpStream::connect(address).await?;
-                        let (mut client_read,mut client_write)=down.into_split();
-                        let hello=packet(&mut up).await?.ok_or_else(||io::Error::from(io::ErrorKind::UnexpectedEof))?;
-                        client_write.write_all(&hello).await?;
-                        let (mut server_read,mut server_write)=up.into_split();let armed=Arc::new(AtomicBool::new(false));let send_armed=armed.clone();
-                        let sending=async move {
-                            while let Some(bytes)=packet(&mut client_read).await? {
-                                if bytes.get(4)==Some(&3) {
-                                    let sql=std::str::from_utf8(&bytes[5..]).unwrap_or("");
-                                    if (commit && sql=="COMMIT") || (!commit && sql.contains("MYSQL_REGRESSION_LOST_REPLY")) {
-                                        hits.fetch_add(1,Ordering::SeqCst);send_armed.store(true,Ordering::SeqCst);
+                    accepted = listener.accept() => {
+                        let Ok((down, _)) = accepted else { break };
+                        let address = upstream.clone();
+                        let hits = h.clone();
+                        let ok = ok.clone();
+                        tasks.spawn(async move {
+                            let mut up = TcpStream::connect(address).await?;
+                            let (mut client_read, mut client_write) = down.into_split();
+                            let hello = packet(&mut up)
+                                .await?
+                                .ok_or_else(|| io::Error::from(io::ErrorKind::UnexpectedEof))?;
+                            client_write.write_all(&hello).await?;
+                            let (mut server_read, mut server_write) = up.into_split();
+                            let armed = Arc::new(AtomicBool::new(false));
+                            let send_armed = armed.clone();
+                            let sending = async move {
+                                while let Some(bytes) = packet(&mut client_read).await? {
+                                    if bytes.get(4) == Some(&3) {
+                                        let sql = std::str::from_utf8(&bytes[5..]).unwrap_or("");
+                                        if (commit && sql == "COMMIT")
+                                            || (!commit && sql.contains("MYSQL_REGRESSION_LOST_REPLY"))
+                                        {
+                                            hits.fetch_add(1, Ordering::SeqCst);
+                                            send_armed.store(true, Ordering::SeqCst);
+                                        }
                                     }
+                                    server_write.write_all(&bytes).await?;
                                 }
-                                server_write.write_all(&bytes).await?;
-                            } Ok::<_,io::Error>(())
-                        };
-                        let receiving=async move {
-                            while let Some(bytes)=packet(&mut server_read).await? {
-                                if armed.load(Ordering::SeqCst) {
-                                    if bytes.get(4)==Some(&0) {ok.fetch_add(1,Ordering::SeqCst);}
-                                    client_write.shutdown().await?;return Ok::<_,io::Error>(());
+                                Ok::<_, io::Error>(())
+                            };
+                            let receiving = async move {
+                                while let Some(bytes) = packet(&mut server_read).await? {
+                                    if armed.load(Ordering::SeqCst) {
+                                        if bytes.get(4) == Some(&0) {
+                                            ok.fetch_add(1, Ordering::SeqCst);
+                                        }
+                                        client_write.shutdown().await?;
+                                        return Ok::<_, io::Error>(());
+                                    }
+                                    client_write.write_all(&bytes).await?;
                                 }
-                                client_write.write_all(&bytes).await?;
-                            } Ok(())
-                        };
-                        tokio::select!{result=sending=>result,result=receiving=>result}
-                    });},
-                    _=tasks.join_next(),if !tasks.is_empty()=>{}
+                                Ok(())
+                            };
+                            tokio::select! {
+                                result = sending => result,
+                                result = receiving => result
+                            }
+                        });
+                    },
+                    _ = tasks.join_next(), if !tasks.is_empty() => {}
                 }
             }
         });

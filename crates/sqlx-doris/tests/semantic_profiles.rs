@@ -33,15 +33,20 @@ async fn table(db: &Client) -> TableName {
     let schema = if db.backend() == Backend::MySql {
         "(id BIGINT PRIMARY KEY,t TIME(6),n BIGINT)"
     } else {
-        "(id BIGINT,t VARCHAR(64),n BIGINT) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
+        "(id BIGINT,t VARCHAR(64),n BIGINT) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) \
+            BUCKETS 1 PROPERTIES('replication_num'='1')"
     };
     db.pool()
         .execute(sqlx::AssertSqlSafe(format!("CREATE TABLE {table}{schema}")))
         .await
         .unwrap();
-    db.pool().execute(sqlx::AssertSqlSafe(format!(
-        "INSERT INTO {table} VALUES(0,NULL,0),(1,'-00:00:00.000001',0),(2,'00:00:00',0),(3,'25:00:00',0)"
-    ))).await.unwrap();
+    db.pool()
+        .execute(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO {table} VALUES(0,NULL,0),(1,'-00:00:00.000001',0),(2,'00:00:00',\
+            0),(3,'25:00:00',0)"
+        )))
+        .await
+        .unwrap();
     table
 }
 async fn ids(db: &Client, table: &TableName, persistent: bool) -> Vec<i64> {
@@ -134,9 +139,18 @@ async fn plain_mysql_retains_native_coercion_and_sdk_can_select_each_time_domain
                 assert_eq!(numeric.unwrap(), if persistent { vec![] } else { vec![2] });
             }
         }
-        let nulls: Vec<(i64,Option<i64>,Option<i64>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT id,CAST(t IN(?,?) AS SIGNED),CAST(t NOT IN(?,?) AS SIGNED) FROM {table} ORDER BY id"
-        ))).bind(negative()).bind(None::<MySqlTime>).bind(negative()).bind(None::<MySqlTime>).fetch_all(db.pool()).await.unwrap();
+        let nulls: Vec<(i64, Option<i64>, Option<i64>)> =
+            sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                "SELECT id,CAST(t IN(?,?) AS SIGNED),CAST(t NOT IN(?,?) AS SIGNED) FROM \
+                {table} ORDER BY id"
+            )))
+            .bind(negative())
+            .bind(None::<MySqlTime>)
+            .bind(negative())
+            .bind(None::<MySqlTime>)
+            .fetch_all(db.pool())
+            .await
+            .unwrap();
         assert_eq!(
             nulls,
             [
@@ -255,7 +269,8 @@ async fn time_domain_selection_preserves_wire_types_cache_and_doris_convenience(
 }
 
 #[tokio::test]
-#[ignore = "requires dedicated MySQL and Doris; lost replies must never replay either selected SQL domain"]
+#[ignore = "requires dedicated MySQL and Doris; lost replies must never replay either \
+    selected SQL domain"]
 async fn native_and_shared_time_domains_keep_uncertain_mutations_single() {
     for backend in [Backend::MySql, Backend::Doris] {
         for normalized in [false, true] {
@@ -289,7 +304,10 @@ async fn native_and_shared_time_domains_keep_uncertain_mutations_single() {
                     assert!(query.await.is_err());
                 } else {
                     let mut query = Box::pin(query);
-                    tokio::select! {r=&mut query=>panic!("write finished before controlled cancellation: {r:?}"),_=p.reached()=>{}};
+                    tokio::select! {
+                        r = &mut query => panic!("write finished before controlled cancellation: {r:?}"),
+                        _ = p.reached() => {}
+                    };
                     drop(query);
                     p.release();
                 }
@@ -310,7 +328,8 @@ async fn native_and_shared_time_domains_keep_uncertain_mutations_single() {
 }
 
 #[tokio::test]
-#[ignore = "requires dedicated MySQL and Doris; uses native SQLx Json bindings in and outside transactions"]
+#[ignore = "requires dedicated MySQL and Doris; uses native SQLx Json bindings in and \
+    outside transactions"]
 async fn native_json_binding_keeps_sql_null_json_null_and_missing_paths_separate() {
     for backend in [Backend::MySql, Backend::Doris] {
         let db = common::client(backend).await;
@@ -318,7 +337,8 @@ async fn native_json_binding_keeps_sql_null_json_null_and_missing_paths_separate
         let schema = if backend == Backend::MySql {
             "(id BIGINT PRIMARY KEY,j JSON)"
         } else {
-            "(id BIGINT,j JSON) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
+            "(id BIGINT,j JSON) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 \
+                PROPERTIES('replication_num'='1')"
         };
         db.pool()
             .execute(sqlx::AssertSqlSafe(format!("CREATE TABLE {table}{schema}")))
@@ -327,9 +347,12 @@ async fn native_json_binding_keeps_sql_null_json_null_and_missing_paths_separate
         let inputs = [
             None,
             Some(Json(serde_json::Value::Null)),
-            Some(Json(
-                serde_json::json!({"a":null,"b":[],"c":{},"n":u64::MAX}),
-            )),
+            Some(Json(serde_json::json!({
+                "a": null,
+                "b": [],
+                "c": {},
+                "n": u64::MAX
+            }))),
             Some(Json(serde_json::json!("null"))),
         ];
         for outcome in 0..3 {
@@ -361,7 +384,13 @@ async fn native_json_binding_keeps_sql_null_json_null_and_missing_paths_separate
                 assert_eq!(actual, inputs);
             }
         }
-        let distinct:Vec<(i64,i64,i64)>=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT id,CAST(j IS NULL AS SIGNED),CAST(JSON_EXTRACT(j,'$.missing') IS NULL AS SIGNED) FROM {table} ORDER BY id"))).fetch_all(db.pool()).await.unwrap();
+        let distinct: Vec<(i64, i64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT id,CAST(j IS NULL AS SIGNED),CAST(JSON_EXTRACT(j,'$.missing') IS \
+            NULL AS SIGNED) FROM {table} ORDER BY id"
+        )))
+        .fetch_all(db.pool())
+        .await
+        .unwrap();
         assert_eq!(distinct, [(0, 1, 1), (1, 0, 1), (2, 0, 1), (3, 0, 1)]);
         common::drop_table(&db, &table).await;
         db.close().await;
@@ -369,7 +398,8 @@ async fn native_json_binding_keeps_sql_null_json_null_and_missing_paths_separate
 }
 
 #[tokio::test]
-#[ignore = "requires dedicated MySQL and Doris; UTC decoding does not override server session interpretation"]
+#[ignore = "requires dedicated MySQL and Doris; UTC decoding does not override server \
+    session interpretation"]
 async fn utc_chrono_binding_and_wall_time_follow_the_explicit_session_zone() {
     let value = NaiveDate::from_ymd_opt(2026, 10, 26)
         .unwrap()
@@ -382,7 +412,8 @@ async fn utc_chrono_binding_and_wall_time_follow_the_explicit_session_zone() {
         let schema = if backend == Backend::MySql {
             "(id BIGINT PRIMARY KEY,at_time DATETIME(6))"
         } else {
-            "(id BIGINT,at_time DATETIME(6)) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
+            "(id BIGINT,at_time DATETIME(6)) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) \
+                BUCKETS 1 PROPERTIES('replication_num'='1')"
         };
         db.pool()
             .execute(sqlx::AssertSqlSafe(format!("CREATE TABLE {table}{schema}")))
@@ -426,7 +457,8 @@ async fn utc_chrono_binding_and_wall_time_follow_the_explicit_session_zone() {
 }
 
 #[tokio::test]
-#[ignore = "requires dedicated MySQL and Doris; checks IEEE finite values across prepared and typed-text binding"]
+#[ignore = "requires dedicated MySQL and Doris; checks IEEE finite values across \
+    prepared and typed-text binding"]
 async fn finite_float_bindings_keep_negative_zero_and_boundary_bits_across_paths() {
     let values = [
         (Some(-0.0_f32), Some(-0.0_f64)),
@@ -442,7 +474,8 @@ async fn finite_float_bindings_keep_negative_zero_and_boundary_bits_across_paths
         let schema = if backend == Backend::MySql {
             "(id BIGINT PRIMARY KEY,a FLOAT,b DOUBLE)"
         } else {
-            "(id BIGINT,a FLOAT,b DOUBLE) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
+            "(id BIGINT,a FLOAT,b DOUBLE) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS \
+                1 PROPERTIES('replication_num'='1')"
         };
         db.pool()
             .execute(sqlx::AssertSqlSafe(format!("CREATE TABLE {table}{schema}")))

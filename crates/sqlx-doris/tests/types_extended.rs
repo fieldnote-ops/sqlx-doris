@@ -34,10 +34,10 @@ async fn variant_template_and_dynamic_paths_survive_separate_loads_type_changes_
     .await
     .unwrap();
     let values = [
-        serde_json::json!({"fixed":1,"x":1,"nested":{"text":"a'\\\n\0中文"}}),
-        serde_json::json!({"fixed":"2","x":2.5,"new":17}),
-        serde_json::json!({"fixed":3,"x":"123","other":[1,2]}),
-        serde_json::json!({"fixed":4,"x":[1,"a",true],"tail":8}),
+        serde_json::json!({ "fixed": 1, "x": 1, "nested": { "text": "a'\\\n\0中文" } }),
+        serde_json::json!({ "fixed": "2", "x": 2.5, "new": 17 }),
+        serde_json::json!({ "fixed": 3, "x": "123", "other": [1, 2] }),
+        serde_json::json!({ "fixed": 4, "x": [1, "a", true], "tail": 8 }),
     ];
     for (id, value) in values.iter().enumerate() {
         sqlx::query(sqlx::AssertSqlSafe(format!(
@@ -105,7 +105,7 @@ async fn variant_json_projection_preserves_scalar_roots_and_binds_special_path_c
         serde_json::json!("1.25"),
         serde_json::json!(1.25),
         serde_json::json!("null"),
-        serde_json::json!({special:"payload"}),
+        serde_json::json!({ special: "payload" }),
         serde_json::json!(true),
         serde_json::json!(false),
     ];
@@ -160,7 +160,7 @@ async fn variant_dotted_keys_are_server_paths_while_json_preserves_literal_keys(
     )
     .await
     .unwrap();
-    let value = Variant(serde_json::json!({"a.b":{"q":"value"}}));
+    let value = Variant(serde_json::json!({ "a.b": { "q": "value" } }));
     sqlx::query(sqlx::AssertSqlSafe(format!(
         "INSERT INTO {table} VALUES (?,CAST(? AS JSON),CAST(? AS JSON))"
     )))
@@ -213,7 +213,25 @@ async fn nested_numeric_maps_decimal76_arrays_and_ip_values_persist_without_floa
         .column(Column::new("records", kind.clone()))
         .replication(1);
     db.create_table(&schema).await.unwrap();
-    let expected=Array(vec![None,Some(Struct(Nested{amounts:Map(vec![(i64::MIN,Array(vec![Some(BigDecimal::from_str("99999999999999999999999999999999999999.12345678901234567890123456789012345678").unwrap()),None])),(i64::MAX,Array(vec![]))]),ip:Ipv6Addr::from_str("2001:db8::1").unwrap(),label:"quote'\\\0中文".into()}))]);
+    let expected = Array(vec![
+        None,
+        Some(Struct(Nested {
+            amounts: Map(vec![
+                (
+                    i64::MIN,
+                    Array(vec![
+                        Some(BigDecimal::from_str(
+                            "99999999999999999999999999999999999999.12345678901234567890123456789012345678"
+                        ).unwrap()),
+                        None
+                    ])
+                ),
+                (i64::MAX, Array(vec![]))
+            ]),
+            ip: Ipv6Addr::from_str("2001:db8::1").unwrap(),
+            label: "quote'\\\0中文".into()
+        }))
+    ]);
     let mut insert = QueryBuilder::<MySql>::new(format!("INSERT INTO {table} VALUES ("));
     insert.push_bind(1_i64).push(",");
     push_complex_value(&mut insert, &kind, &expected).unwrap();
@@ -280,12 +298,25 @@ async fn sum_count_avg_states_merge_null_inputs_empty_sets_and_union_of_stored_g
     db.create_table(&schema).await.unwrap();
     for (id, value) in [(1_i64, Some(2_i32)), (1, Some(4)), (1, None), (2, None)] {
         // Explicit 0/1 SUM preserves COUNT(value), including all-NULL groups.
-        sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {table} VALUES (?,SUM_STATE(CAST(? AS INT)),SUM_STATE(CAST(? AS INT)),AVG_STATE(CAST(? AS INT)),COUNT_STATE(CAST(1 AS INT)))")))
-            .bind(id).bind(value).bind(i32::from(value.is_some())).bind(value).execute(db.pool()).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO {table} VALUES (?,SUM_STATE(CAST(? AS INT)),SUM_STATE(CAST(? AS \
+            INT)),AVG_STATE(CAST(? AS INT)),COUNT_STATE(CAST(1 AS INT)))"
+        )))
+        .bind(id)
+        .bind(value)
+        .bind(i32::from(value.is_some()))
+        .bind(value)
+        .execute(db.pool())
+        .await
+        .unwrap();
     }
     let rows: Vec<MergedGroup> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT id,CAST(SUM_MERGE(s) AS STRING),COALESCE(SUM_MERGE(c),0),AVG_MERGE(a),COUNT_MERGE(r) FROM {table} GROUP BY id ORDER BY id")))
-        .fetch_all(db.pool()).await.unwrap();
+        "SELECT id,CAST(SUM_MERGE(s) AS STRING),COALESCE(SUM_MERGE(c),0),\
+            AVG_MERGE(a),COUNT_MERGE(r) FROM {table} GROUP BY id ORDER BY id"
+    )))
+    .fetch_all(db.pool())
+    .await
+    .unwrap();
     assert_eq!(
         rows,
         [
@@ -293,20 +324,41 @@ async fn sum_count_avg_states_merge_null_inputs_empty_sets_and_union_of_stored_g
             (2, None, 0, None, 1)
         ]
     );
-    let union:(Option<String>,i64,Option<f64>,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT CAST(SUM_MERGE(s) AS STRING),COALESCE(SUM_MERGE(c),0),AVG_MERGE(a),COUNT_MERGE(r) FROM (SELECT SUM_UNION(s) s,SUM_UNION(c) c,AVG_UNION(a) a,COUNT_UNION(r) r FROM {table} GROUP BY id) t")))
-        .fetch_one(db.pool()).await.unwrap();
+    let union: (Option<String>, i64, Option<f64>, i64) =
+        sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT CAST(SUM_MERGE(s) AS STRING),COALESCE(SUM_MERGE(c),0),AVG_MERGE(a),\
+            COUNT_MERGE(r) FROM (SELECT SUM_UNION(s) s,SUM_UNION(c) c,AVG_UNION(a) a,\
+            COUNT_UNION(r) r FROM {table} GROUP BY id) t"
+        )))
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
     assert_eq!(union, (Some("6".into()), 2, Some(3.0), 4));
-    let empty:(Option<String>,i64,Option<f64>,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT CAST(SUM_MERGE(s) AS STRING),COALESCE(SUM_MERGE(c),0),AVG_MERGE(a),COUNT_MERGE(r) FROM {table} WHERE id=999")))
-        .fetch_one(db.pool()).await.unwrap();
+    let empty: (Option<String>, i64, Option<f64>, i64) =
+        sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT CAST(SUM_MERGE(s) AS STRING),COALESCE(SUM_MERGE(c),0),AVG_MERGE(a),\
+            COUNT_MERGE(r) FROM {table} WHERE id=999"
+        )))
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
     assert_eq!(empty, (None, 0, None, 0));
-    let mismatch=sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {table} VALUES (3,MAX_STATE(CAST(7 AS INT)),SUM_STATE(CAST(1 AS INT)),AVG_STATE(CAST(7 AS INT)),COUNT_STATE(CAST(1 AS INT)))")))
-        .execute(db.pool()).await.unwrap_err();
+    let mismatch = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "INSERT INTO {table} VALUES (3,MAX_STATE(CAST(7 AS INT)),SUM_STATE(CAST(1 AS \
+        INT)),AVG_STATE(CAST(7 AS INT)),COUNT_STATE(CAST(1 AS INT)))"
+    )))
+    .execute(db.pool())
+    .await
+    .unwrap_err();
     // The short PrepareOk is decoded and the server's actual type error survives.
     assert!(matches!(mismatch, sqlx::Error::Database(_)), "{mismatch:?}");
-    let text_error=sqlx::raw_sql(sqlx::AssertSqlSafe(format!("INSERT INTO {table} VALUES (3,MAX_STATE(CAST(7 AS INT)),SUM_STATE(CAST(1 AS INT)),AVG_STATE(CAST(7 AS INT)),COUNT_STATE(CAST(1 AS INT)))")))
-        .execute(db.pool()).await.unwrap_err();
+    let text_error = sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "INSERT INTO {table} VALUES (3,MAX_STATE(CAST(7 AS INT)),SUM_STATE(CAST(1 AS \
+        INT)),AVG_STATE(CAST(7 AS INT)),COUNT_STATE(CAST(1 AS INT)))"
+    )))
+    .execute(db.pool())
+    .await
+    .unwrap_err();
     assert!(
         matches!(text_error, sqlx::Error::Database(_)),
         "{text_error:?}"

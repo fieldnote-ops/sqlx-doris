@@ -30,7 +30,13 @@ async fn same_queries_bindings_and_derived_row_work_on_both_backends() {
         let db = common::client(backend).await;
         let table = common::name();
         if backend == Backend::MySql {
-            db.pool().execute(sqlx::AssertSqlSafe(format!("CREATE TABLE {table} (id BIGINT PRIMARY KEY,name TEXT,amount DECIMAL(38,18),wide DECIMAL(39,0),created DATETIME(6),meta JSON)"))).await.unwrap();
+            db.pool()
+                .execute(sqlx::AssertSqlSafe(format!(
+                    "CREATE TABLE {table} (id BIGINT PRIMARY KEY,name TEXT,amount DECIMAL(38,18),\
+                wide DECIMAL(39,0),created DATETIME(6),meta JSON)"
+                )))
+                .await
+                .unwrap();
         } else {
             db.create_table(
                 &TableDefinition::new(table.clone(), TableModel::Unique, ["id"])
@@ -61,7 +67,7 @@ async fn same_queries_bindings_and_derived_row_work_on_both_backends() {
                 "%Y-%m-%d %H:%M:%S%.f",
             )
             .unwrap(),
-            meta: Variant(serde_json::json!({"nested":[1,null],"value":42})),
+            meta: Variant(serde_json::json!({ "nested": [1, null], "value": 42 })),
         };
         // Identifiers come only from the generated fixture name; every data value binds.
         sqlx::query(sqlx::AssertSqlSafe(format!(
@@ -166,7 +172,7 @@ async fn native_types_persist_and_round_trip_with_nulls_precision_and_nested_val
             points: vec![Some(1), None, Some(3)],
         })),
         variant: Some(Variant(
-            serde_json::json!({"large":u64::MAX,"nested":[1,null]}),
+            serde_json::json!({ "large": u64::MAX, "nested": [1, null] }),
         )),
         tz: Some(TimestampTz::parse("2026-10-26 10:20:30.123456+08:00").unwrap()),
         ip4: Some(Ipv4("192.0.2.1".parse().unwrap())),
@@ -174,7 +180,9 @@ async fn native_types_persist_and_round_trip_with_nulls_precision_and_nested_val
         payload: Some(Binary(vec![0, 97, 255, 0])),
     };
     let insert = format!(
-        "INSERT INTO {table} VALUES (?,?,?,CAST(? AS ARRAY<LARGEINT>),CAST(? AS MAP<INT,ARRAY<STRING>>),CAST(? AS STRUCT<name:STRING,points:ARRAY<INT>>),CAST(? AS JSON),CAST(? AS TIMESTAMPTZ(6)),CAST(? AS IPV4),CAST(? AS IPV6),?)"
+        "INSERT INTO {table} VALUES (?,?,?,CAST(? AS ARRAY<LARGEINT>),CAST(? AS \
+            MAP<INT,ARRAY<STRING>>),CAST(? AS STRUCT<name:STRING,points:ARRAY<INT>>),\
+            CAST(? AS JSON),CAST(? AS TIMESTAMPTZ(6)),CAST(? AS IPV4),CAST(? AS IPV6),?)"
     );
     sqlx::query(sqlx::AssertSqlSafe(insert.clone()))
         .bind(expected.id)
@@ -217,7 +225,13 @@ async fn native_types_persist_and_round_trip_with_nulls_precision_and_nested_val
     )
     .unwrap();
     let tz = operations::project("tz", &T::TimestampTz(6)).unwrap();
-    let mut rows:Vec<NativeRow>=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT id,large,amount,{numbers},{attrs},{record},variant,{tz},ip4,ip6,UNHEX(payload_hex) AS payload FROM {table} ORDER BY id"))).fetch_all(db.pool()).await.unwrap();
+    let mut rows: Vec<NativeRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT id,large,amount,{numbers},{attrs},{record},variant,{tz},ip4,ip6,\
+        UNHEX(payload_hex) AS payload FROM {table} ORDER BY id"
+    )))
+    .fetch_all(db.pool())
+    .await
+    .unwrap();
     let actual = rows.remove(0);
     assert_eq!(actual, expected);
     let native_large: LargeInt = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
@@ -292,7 +306,7 @@ async fn map_constructor_duplicate_keys_follow_the_servers_last_value_semantics(
 #[ignore = "requires Doris; records a server-side VARIANT parser limitation"]
 async fn variant_object_text_alone_does_not_prove_a_native_object() {
     let db = common::client(Backend::Doris).await;
-    let value = Variant(serde_json::json!({"n":42}));
+    let value = Variant(serde_json::json!({ "n": 42 }));
     let cast_type: String = sqlx::query_scalar("SELECT VARIANT_TYPE(CAST(? AS VARIANT))")
         .bind(&value)
         .fetch_one(db.pool())
@@ -326,9 +340,10 @@ async fn variant_object_text_alone_does_not_prove_a_native_object() {
         serde_json::from_str::<serde_json::Value>(&parsed_type).unwrap()["n"],
         "bigint"
     );
-    let wide = Variant(
-        serde_json::json!({"n":serde_json::from_str::<serde_json::Value>("170141183460469231731687303715884105727").unwrap()}),
-    );
+    let wide = Variant(serde_json::json!({
+        "n": serde_json::from_str::<serde_json::Value>("170141183460469231731687303715884105727")
+                .unwrap()
+    }));
     let fallback_type: String = sqlx::query_scalar("SELECT VARIANT_TYPE(PARSE_TO_VARIANT(?))")
         .bind(&wide)
         .fetch_one(db.pool())

@@ -193,7 +193,10 @@ async fn cancelled_begin_and_cancelled_write_cannot_commit_or_strand_the_pool() 
         if during_begin {
             let future = db.pool().begin();
             tokio::pin!(future);
-            tokio::select! { result=&mut future => panic!("unexpected completion: {result:?}"), _=proxy.reached()=>{} }
+            tokio::select! {
+                result = &mut future => panic!("unexpected completion: {result:?}"),
+                _ = proxy.reached() => {}
+            }
         } else {
             let mut tx = db.pool().begin().await.unwrap();
             (&mut *tx)
@@ -209,7 +212,10 @@ async fn cancelled_begin_and_cancelled_write_cannot_commit_or_strand_the_pool() 
                 )))
                 .execute(&mut *tx);
                 tokio::pin!(future);
-                tokio::select! {result=&mut future=>panic!("unexpected completion: {result:?}"),_=proxy.reached()=>{}}
+                tokio::select! {
+                    result = &mut future => panic!("unexpected completion: {result:?}"),
+                    _ = proxy.reached() => {}
+                }
             }
             let error = tx.commit().await.unwrap_err();
             assert!(error.to_string().contains("unfinished query"), "{error:?}");
@@ -258,7 +264,10 @@ async fn lost_or_cancelled_commit_reply_never_replays_a_committed_transaction() 
             if cancelled {
                 let future = tx.commit();
                 tokio::pin!(future);
-                tokio::select! {result=&mut future=>panic!("unexpected completion: {result:?}"),_=proxy.reached()=>{}}
+                tokio::select! {
+                    result = &mut future => panic!("unexpected completion: {result:?}"),
+                    _ = proxy.reached() => {}
+                }
             } else {
                 let error = tx.commit().await.unwrap_err();
                 assert!(

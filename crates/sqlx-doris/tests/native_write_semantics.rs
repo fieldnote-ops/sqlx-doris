@@ -80,7 +80,8 @@ async fn create(db: &Client, model: Model) -> TableName {
             ),
         };
         format!(
-            "({cols}) {keys} KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1'{props})"
+            "({cols}) {keys} KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 \
+                PROPERTIES('replication_num'='1'{props})"
         )
     };
     db.pool()
@@ -100,7 +101,11 @@ fn record(name: &str, rows: &[serde_json::Value]) {
     .unwrap();
 }
 fn receipt(label: &str, r: &sqlx::mysql::MySqlQueryResult) -> serde_json::Value {
-    serde_json::json!({"label":label,"rows_affected":r.rows_affected(),"last_insert_id":r.last_insert_id()})
+    serde_json::json!({
+        "label": label,
+        "rows_affected": r.rows_affected(),
+        "last_insert_id": r.last_insert_id()
+    })
 }
 async fn stored(db: &Client, t: &TableName) -> Vec<(i64, i64, Option<i64>)> {
     sqlx::query_as(sqlx::AssertSqlSafe(format!(
@@ -155,7 +160,13 @@ async fn original_batch_duplicate_keys_preserve_native_errors_and_accepted_row_r
                             .number(),
                         1062
                     );
-                    observations.push(serde_json::json!({"backend":"mysql","mode":mode,"persistent":persistent,"duplicate_error":1062,"message":native.message()}));
+                    observations.push(serde_json::json!({
+                        "backend": "mysql",
+                        "mode": mode,
+                        "persistent": persistent,
+                        "duplicate_error": 1062,
+                        "message": native.message()
+                    }));
                 } else {
                     let r = result.unwrap();
                     assert_eq!(r.rows_affected(), 3);
@@ -178,7 +189,8 @@ async fn original_batch_duplicate_keys_preserve_native_errors_and_accepted_row_r
                     );
                     assert_eq!(rows[1], (2, 30, None));
                 }
-                observations.push(serde_json::json!({"backend":format!("{b:?}"),"stored":rows}));
+                observations
+                    .push(serde_json::json!({ "backend": format!("{b:?}"), "stored": rows }));
             }
         }
         drop(c);
@@ -230,7 +242,12 @@ async fn doris_same_batch_models_and_sequence_keep_native_merge_results_and_inpu
                     assert_eq!(rows[1], (2, 30, None));
                 }
             }
-            observations.push(serde_json::json!({"model":format!("{model:?}"),"round":round,"receipt":receipt("repeat-batch",&r),"stored":rows}));
+            observations.push(serde_json::json!({
+                "model": format!("{model:?}"),
+                "round": round,
+                "receipt": receipt("repeat-batch", &r),
+                "stored": rows
+            }));
         }
         if model == Model::Sequence {
             let r = sqlx::query(sqlx::AssertSqlSafe(format!(
@@ -266,7 +283,11 @@ async fn doris_same_batch_models_and_sequence_keep_native_merge_results_and_inpu
                 "{error:?}"
             );
             assert_eq!(stored(&db, &t).await, before);
-            observations.push(serde_json::json!({"model":format!("{model:?}"),"delete_without_filter":error.to_string(),"stored_unchanged":true}));
+            observations.push(serde_json::json!({
+                "model": format!("{model:?}"),
+                "delete_without_filter": error.to_string(),
+                "stored_unchanged": true
+            }));
         }
         common::drop_table(&db, &t).await;
     }
@@ -298,7 +319,8 @@ async fn conflict_syntax_keeps_native_meaning_and_prior_transaction_success_can_
                         "ignore" => format!("INSERT IGNORE INTO {t}(id,revision,n) VALUES(?,?,?)"),
                         "replace" => format!("REPLACE INTO {t}(id,revision,n) VALUES(?,?,?)"),
                         _ => format!(
-                            "INSERT INTO {t}(id,revision,n) VALUES(?,?,?) ON DUPLICATE KEY UPDATE revision=VALUES(revision),n=VALUES(n)"
+                            "INSERT INTO {t}(id,revision,n) VALUES(?,?,?) ON DUPLICATE KEY UPDATE \
+                                revision=VALUES(revision),n=VALUES(n)"
                         ),
                     };
                     let mut c = db.pool().acquire().await.unwrap();
@@ -346,7 +368,12 @@ async fn conflict_syntax_keeps_native_meaning_and_prior_transaction_success_can_
                                 1105
                             );
                         }
-                        observations.push(serde_json::json!({"backend":"doris","form":form,"inside":inside,"error":error.to_string()}));
+                        observations.push(serde_json::json!({
+                            "backend": "doris",
+                            "form": form,
+                            "inside": inside,
+                            "error": error.to_string()
+                        }));
                     }
                     drop(c);
                     let mut expected = vec![(
@@ -437,7 +464,12 @@ async fn positive_statement_receipts_do_not_claim_commit_after_rollback_or_drop(
                 } else {
                     assert!(rows.is_empty());
                 }
-                observations.push(serde_json::json!({"backend":format!("{b:?}"),"action":action,"persistent":persistent,"stored":rows}));
+                observations.push(serde_json::json!({
+                    "backend": format!("{b:?}"),
+                    "action": action,
+                    "persistent": persistent,
+                    "stored": rows
+                }));
                 common::drop_table(&db, &t).await;
             }
         }
@@ -483,7 +515,10 @@ async fn duplicate_and_aggregate_batches_cancel_or_lose_commit_reply_without_rep
                     {
                         let future = batch(sql).persistent(persistent).execute(&mut *tx);
                         tokio::pin!(future);
-                        tokio::select! {_=&mut future=>panic!("batch result did not pause"),_=p.reached()=>{}}
+                        tokio::select! {
+                            _ = &mut future => panic!("batch result did not pause"),
+                            _ = p.reached() => {}
+                        }
                     }
                     drop(tx);
                     p.release();

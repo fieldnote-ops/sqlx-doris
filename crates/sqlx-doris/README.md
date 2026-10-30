@@ -67,7 +67,8 @@ pub async fn example() -> Result<(), Box<dyn std::error::Error>> {
 - Doris 声明范围的 VALUES、静态 DEFAULT、BLOB 条件与 TIME/分页参数内部适配，继续原 SQL 和.bind()。
 - BLOB 支持简单列比较、IN/NOT IN 和 BETWEEN/NOT BETWEEN；复杂 CASE/函数/LIKE 等不伪造等价支持。
 - 原生 `Transaction<MySql>`支持顶层写事务；Doris 事务内查询/DDL、savepoint 和跨库事务不模拟。取消/未知状态退役连接，不重放不确定写入。
-- types 提供 LargeInt、Time、`TimestampTz`、`Array/Map/Struct/Variant`、IP、Binary/Hex；复杂值可用 operations::push_complex_value 逐叶绑定。
+- types 提供 LargeInt、Time、`TimestampTz`、`Array/Map/Struct/Variant`、IP、Binary/Hex；
+  复杂值可用 operations::push_complex_value 逐叶绑定。
 - MySqlTime 保留 MySQL 原生范围；Doris 完整微秒边界使用 types::Time。Doris 内部 OLAP 不支持 TIME 列，查询和显式 STRING 表示分开。
 - VARIANT 可能归一化或丢失展示信息；宽 Decimal 按目标 precision/scale 处理，不能从客户端还原已丢失的信息。
 - operations 提供显式表模型、元数据及异步物化视图任务观察；提交接受与数据可见不同，需检查状态。

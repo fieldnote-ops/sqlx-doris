@@ -198,7 +198,8 @@ async fn char_padding_rules_are_explicit_while_varchar_keeps_trailing_spaces_and
         let db = common::client(backend).await;
         let table = common::name();
         if backend == Backend::MySql {
-            db.pool().execute(sqlx::AssertSqlSafe(format!("CREATE TABLE {table} (id BIGINT PRIMARY KEY,fixed CHAR(16),variable VARCHAR(32))")))
+            db.pool().execute(sqlx::AssertSqlSafe(format!(
+                "CREATE TABLE {table} (id BIGINT PRIMARY KEY,fixed CHAR(16),variable VARCHAR(32))")))
                 .await.unwrap();
         } else {
             db.create_table(

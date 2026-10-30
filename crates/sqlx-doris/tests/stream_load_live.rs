@@ -165,8 +165,8 @@ async fn filtered_rows_fail_the_batch_by_default_and_remain_inspectable_when_all
     db.create_table(&definition(table.clone())).await.unwrap();
     let http = http();
     let rows = [
-        serde_json::json!({"id":1,"name":"valid"}),
-        serde_json::json!({"id":"not an integer","name":"invalid"}),
+        serde_json::json!({ "id": 1, "name": "valid" }),
+        serde_json::json!({ "id": "not an integer", "name": "invalid" }),
     ];
     let error = http
         .load(&table)
@@ -213,7 +213,7 @@ async fn async_group_commit_acknowledges_acceptance_then_becomes_visible() {
         .load(&table)
         .unwrap()
         .group_commit(GroupCommit::Async)
-        .send_json(&[serde_json::json!({"id":1,"name":"async"})])
+        .send_json(&[serde_json::json!({ "id": 1, "name": "async" })])
         .await
         .unwrap();
     assert_eq!(receipt.state(), LoadState::Accepted);
@@ -237,7 +237,7 @@ async fn synchronous_group_commit_http_is_visible_on_return_and_invalid_batch_is
         .load(&table)
         .unwrap()
         .group_commit(GroupCommit::Sync)
-        .send_json(&[serde_json::json!({"id":1,"name":"sync"})])
+        .send_json(&[serde_json::json!({ "id": 1, "name": "sync" })])
         .await
         .unwrap();
     assert_eq!(receipt.state(), LoadState::Visible, "{receipt:?}");
@@ -266,7 +266,7 @@ async fn synchronous_group_commit_http_is_visible_on_return_and_invalid_batch_is
         .load(&table)
         .unwrap()
         .group_commit(GroupCommit::Sync)
-        .send_json(&[serde_json::json!({"id":"bad-integer","name":"invalid"})])
+        .send_json(&[serde_json::json!({ "id": "bad-integer", "name": "invalid" })])
         .await
         .unwrap_err();
     assert!(matches!(error, Error::Load { .. }), "{error:?}");
@@ -296,7 +296,7 @@ async fn partial_update_preserves_other_columns_and_rejects_new_keys_when_reques
     let first = http
         .load(&table)
         .unwrap()
-        .send_json(&[serde_json::json!({"id":1,"name":"preserved","score":10})])
+        .send_json(&[serde_json::json!({ "id": 1, "name": "preserved", "score": 10 })])
         .await
         .unwrap();
     committed(&first);
@@ -310,7 +310,7 @@ async fn partial_update_preserves_other_columns_and_rejects_new_keys_when_reques
         .unwrap()
         .header("partial_update_new_key_behavior", "ERROR")
         .unwrap()
-        .send_json(&[serde_json::json!({"id":1,"score":20})])
+        .send_json(&[serde_json::json!({ "id": 1, "score": 20 })])
         .await
         .unwrap();
     committed(&update);
@@ -331,7 +331,7 @@ async fn partial_update_preserves_other_columns_and_rejects_new_keys_when_reques
         .unwrap()
         .header("partial_update_new_key_behavior", "ERROR")
         .unwrap()
-        .send_json(&[serde_json::json!({"id":2,"score":30})])
+        .send_json(&[serde_json::json!({ "id": 2, "score": 30 })])
         .await
         .unwrap_err();
     assert!(matches!(error, Error::Load { .. }));
@@ -380,10 +380,31 @@ async fn json_native_types_persist_precision_nested_strings_and_variant_fields()
     db.create_table(&definition).await.unwrap();
     let text = "中文🙂 \" \\ \r\n\t\0";
     let amount = "9999999999999999999999999999999999999999999999.123456789012345678901234567890";
-    let receipt=http().load_table(&definition).unwrap().send_json(&[
-        serde_json::json!({"id":1,"tags":[text,null,""],"attrs":{"1":[text,null],"2":[]},"record":{"label":text},"meta":{"n":42},"amount":amount,"wide":i128::MAX.to_string()}),
-        serde_json::json!({"id":2,"tags":null,"attrs":null,"record":null,"meta":null,"amount":null,"wide":null}),
-    ]).await.unwrap();
+    let receipt = http()
+        .load_table(&definition)
+        .unwrap()
+        .send_json(&[
+            serde_json::json!({
+                "id": 1,
+                "tags": [text, null, ""],
+                "attrs": { "1": [text, null], "2": [] },
+                "record": { "label": text },
+                "meta": { "n": 42 },
+                "amount": amount,
+                "wide": i128::MAX.to_string()
+            }),
+            serde_json::json!({
+                "id": 2,
+                "tags": null,
+                "attrs": null,
+                "record": null,
+                "meta": null,
+                "amount": null,
+                "wide": null
+            }),
+        ])
+        .await
+        .unwrap();
     committed(&receipt);
     visible(&db, &table, 2).await;
     let mut select = definition.select_builder().unwrap();
@@ -411,7 +432,13 @@ async fn json_native_types_persist_precision_nested_strings_and_variant_fields()
     .await
     .unwrap();
     assert_eq!(n, 42);
-    let nulls: i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {table} WHERE id=2 AND tags IS NULL AND attrs IS NULL AND record IS NULL AND meta IS NULL AND amount IS NULL AND wide IS NULL"))).fetch_one(db.pool()).await.unwrap();
+    let nulls: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT COUNT(*) FROM {table} WHERE id=2 AND tags IS NULL AND attrs IS NULL \
+        AND record IS NULL AND meta IS NULL AND amount IS NULL AND wide IS NULL"
+    )))
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
     assert_eq!(nulls, 1);
     common::drop_table(&db, &table).await;
     db.close().await;

@@ -40,7 +40,10 @@ class ExternalBuildTests(unittest.TestCase):
             sys.executable,
             "-B",
             "-c",
-            "import os,tempfile,json; print(json.dumps([tempfile.gettempdir(),os.environ['CARGO_HOME'],os.environ['CARGO_TARGET_DIR']]))",
+            (
+                "import os,tempfile,json; print(json.dumps([tempfile.gettempdir(),"
+                "os.environ['CARGO_HOME'],os.environ['CARGO_TARGET_DIR']]))"
+            ),
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         root = Path(os.environ["SQLX_DORIS_BUILD_ROOT"])

@@ -45,7 +45,8 @@ async fn proxied(backend: Backend, mode: proxy::Mode) -> (Client, proxy::Proxy) 
 async fn create(db: &Client, rich: bool) -> TableName {
     let table = common::name();
     let fields = if rich {
-        "id BIGINT NOT NULL, message VARCHAR(1024), n BIGINT, amount DECIMAL(27,9), active BOOLEAN, event DATETIME(6)"
+        "id BIGINT NOT NULL, message VARCHAR(1024), n BIGINT, amount DECIMAL(27,9), \
+            active BOOLEAN, event DATETIME(6)"
     } else {
         "id BIGINT NOT NULL, value BIGINT"
     };
@@ -376,7 +377,10 @@ async fn cancelled_prepare_or_execute_retires_connection_and_rolls_back_without_
                         .bind(10_i64)
                         .execute(&mut *tx);
                     tokio::pin!(future);
-                    tokio::select! { r=&mut future=>panic!("fault completed early: {r:?}"), _=proxy.reached()=>{} }
+                    tokio::select! {
+                        r = &mut future => panic!("fault completed early: {r:?}"),
+                        _ = proxy.reached() => {}
+                    }
                 }
                 if backend == Backend::Doris {
                     assert!(tx.commit().await.is_err());
@@ -407,7 +411,14 @@ async fn cancelled_prepare_or_execute_retires_connection_and_rolls_back_without_
             // The only additional execute is the recovery SELECT; the INSERT
             // was never prepared or executed a second time on another socket.
             assert_eq!(trace.iter().filter(|p| p[0] == 23).count(), writes + 1);
-            assert_eq!(trace.iter().filter(|p| p[0] == 22 && String::from_utf8_lossy(&p[1..]).starts_with("INSERT")).count(), usize::from(backend == Backend::MySql));
+            assert_eq!(
+                trace
+                    .iter()
+                    .filter(|p| p[0] == 22
+                        && String::from_utf8_lossy(&p[1..]).starts_with("INSERT"))
+                    .count(),
+                usize::from(backend == Backend::MySql)
+            );
             println!(
                 "cancel {backend:?} prepare={} reply={} execute_count={writes} rows=0 recovered=42",
                 matches!(mode, proxy::Mode::PausePrepare),
@@ -461,7 +472,10 @@ async fn cancelled_or_lost_commit_reply_after_bound_write_is_never_replayed() {
                 {
                     let future = tx.commit();
                     tokio::pin!(future);
-                    tokio::select! { r=&mut future=>panic!("commit completed early: {r:?}"), _=proxy.reached()=>{} }
+                    tokio::select! {
+                        r = &mut future => panic!("commit completed early: {r:?}"),
+                        _ = proxy.reached() => {}
+                    }
                 }
                 proxy.release();
             } else {
@@ -676,7 +690,8 @@ async fn mixed_text_and_bound_values_commit_rollback_and_drop_in_both_orders() {
         assert!(text_inserts.iter().all(|p| backend == Backend::Doris
             || String::from_utf8_lossy(&p[1..]).ends_with("VALUES(1,10)")));
         println!(
-            "mixed VALUES {backend:?}: both orders/cached/new/commit/rollback/drop, shared bind API verified"
+            "mixed VALUES {backend:?}: both orders/cached/new/commit/rollback/drop, \
+                shared bind API verified"
         );
         common::drop_table(&db, &table).await;
         db.close().await;
@@ -756,7 +771,10 @@ async fn mixed_values_cancel_prepare_execute_text_commit_or_rollback_without_rep
                     {
                         let future = tx.commit();
                         tokio::pin!(future);
-                        tokio::select! {r=&mut future=>panic!("commit completed before fault: {r:?}"),_=proxy.reached()=>{}}
+                        tokio::select! {
+                            r = &mut future => panic!("commit completed before fault: {r:?}"),
+                            _ = proxy.reached() => {}
+                        }
                     }
                     proxy.release();
                 }
@@ -767,7 +785,10 @@ async fn mixed_values_cancel_prepare_execute_text_commit_or_rollback_without_rep
                     {
                         let future = tx.rollback();
                         tokio::pin!(future);
-                        tokio::select! {r=&mut future=>panic!("rollback completed before fault: {r:?}"),_=proxy.reached()=>{}}
+                        tokio::select! {
+                            r = &mut future => panic!("rollback completed before fault: {r:?}"),
+                            _ = proxy.reached() => {}
+                        }
                     }
                     proxy.release();
                 }
@@ -805,7 +826,10 @@ async fn mixed_values_cancel_prepare_execute_text_commit_or_rollback_without_rep
                         }
                     };
                     tokio::pin!(future);
-                    tokio::select! {r=&mut future=>panic!("write completed before fault: {r:?}"),_=proxy.reached()=>{}}
+                    tokio::select! {
+                        r = &mut future => panic!("write completed before fault: {r:?}"),
+                        _ = proxy.reached() => {}
+                    }
                 }
                 if backend == Backend::Doris {
                     assert!(tx.commit().await.is_err());

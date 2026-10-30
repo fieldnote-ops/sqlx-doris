@@ -133,8 +133,14 @@ async fn time_is_query_only_and_olap_storage_is_rejected() {
         Err(sqlx_doris::Error::Unsupported(_))
     ));
     assert!(operations::project("value", &DataType::Time(7)).is_err());
-    let error = db.pool().execute(sqlx::AssertSqlSafe(format!("CREATE TABLE {name}(id INT,value TIME(6)) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num'='1')")))
-        .await.unwrap_err();
+    let error = db
+        .pool()
+        .execute(sqlx::AssertSqlSafe(format!(
+            "CREATE TABLE {name}(id INT,value TIME(6)) DUPLICATE KEY(id) DISTRIBUTED BY \
+        HASH(id) BUCKETS 1 PROPERTIES ('replication_num'='1')"
+        )))
+        .await
+        .unwrap_err();
     assert!(
         error
             .to_string()

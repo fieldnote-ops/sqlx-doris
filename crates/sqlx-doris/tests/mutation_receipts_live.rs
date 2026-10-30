@@ -8,14 +8,23 @@ use sqlx_doris::{
 use std::{collections::BTreeSet, env, fs, path::PathBuf};
 
 fn receipt(step: &str, result: &MySqlQueryResult) -> serde_json::Value {
-    serde_json::json!({"step":step,"rows_affected":result.rows_affected(),"last_insert_id":result.last_insert_id()})
+    serde_json::json!({
+        "step": step,
+        "rows_affected": result.rows_affected(),
+        "last_insert_id": result.last_insert_id()
+    })
 }
 fn record(backend: Backend, table: &TableName, observations: &[serde_json::Value]) {
     let directory =
         PathBuf::from(env::var_os("SQLX_DORIS_ARTIFACTS_DIR").expect("scripts/dev required"))
             .join("mutation-receipts");
     fs::create_dir_all(&directory).unwrap();
-    let report = serde_json::json!({"backend":format!("{backend:?}"),"doris_version":env::var("DORIS_TEST_VERSION").ok(),"table":table.to_string(),"receipts":observations});
+    let report = serde_json::json!({
+        "backend": format!("{backend:?}"),
+        "doris_version": env::var("DORIS_TEST_VERSION").ok(),
+        "table": table.to_string(),
+        "receipts": observations
+    });
     let file = directory.join(format!("{backend:?}-{}.json", table.table));
     fs::write(&file, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
     eprintln!("Mutation receipts: {}", file.display());
@@ -123,11 +132,14 @@ async fn generated_ids_are_unique_while_doris_ok_packets_do_not_return_the_id() 
         let table = common::name();
         let ddl = if backend == Backend::MySql {
             format!(
-                "CREATE TABLE {table}(id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,note VARCHAR(128) NOT NULL) AUTO_INCREMENT=100"
+                "CREATE TABLE {table}(id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,note \
+                    VARCHAR(128) NOT NULL) AUTO_INCREMENT=100"
             )
         } else {
             format!(
-                "CREATE TABLE {table}(id BIGINT NOT NULL AUTO_INCREMENT(100),note STRING NOT NULL) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num'='1','enable_unique_key_merge_on_write'='true')"
+                "CREATE TABLE {table}(id BIGINT NOT NULL AUTO_INCREMENT(100),note STRING NOT \
+                    NULL) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES \
+                    ('replication_num'='1','enable_unique_key_merge_on_write'='true')"
             )
         };
         db.pool().execute(sqlx::AssertSqlSafe(ddl)).await.unwrap();

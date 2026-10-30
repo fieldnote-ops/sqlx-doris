@@ -65,8 +65,19 @@ async fn independent_time_pagination_bytes_and_metadata_fallback_skip_mode_reads
                 .unwrap();
             for i in 0..4 {
                 let before = p.trace().len();
-                let got:(MySqlTime,String,Option<i64>,String)=sqlx::query_as("SELECT CAST(? AS TIME(6)),? AS v,? AS n,'? literal' AS q LIMIT ? OFFSET ? /* MODE_FREE */")
-                    .bind(time(i)).bind("O'Reilly 中文🙂").bind(None::<i64>).bind(1_i64).bind(0_i64).persistent(i%2==0).fetch_one(&mut *c).await.unwrap();
+                let got: (MySqlTime, String, Option<i64>, String) = sqlx::query_as(
+                    "SELECT CAST(? AS TIME(6)),? AS v,? AS n,'? literal' AS q LIMIT ? OFFSET ? \
+                    /* MODE_FREE */",
+                )
+                .bind(time(i))
+                .bind("O'Reilly 中文🙂")
+                .bind(None::<i64>)
+                .bind(1_i64)
+                .bind(0_i64)
+                .persistent(i % 2 == 0)
+                .fetch_one(&mut *c)
+                .await
+                .unwrap();
                 assert_eq!(
                     got,
                     (time(i), "O'Reilly 中文🙂".into(), None, "? literal".into())
@@ -145,7 +156,8 @@ async fn sensitive_values_follow_actual_mode_after_switches_on_the_same_sql() {
                 for fallback in [false, true] {
                     let before = p.trace().len();
                     let got: (MySqlTime, String) = if fallback {
-                        sqlx::query_as("SELECT CAST('-00:00:00.000001' AS TIME(6)),? AS v /* MODE_SENSITIVE_METADATA */")
+                        sqlx::query_as(
+                            "SELECT CAST('-00:00:00.000001' AS TIME(6)),? AS v /* MODE_SENSITIVE_METADATA */")
                             .bind(value).persistent(true).fetch_one(&mut *c).await.unwrap()
                     } else {
                         sqlx::query_as(
@@ -181,7 +193,8 @@ async fn independent_writes_are_not_replayed_after_cancel_or_lost_reply() {
         let admin = common::client(b).await;
         let t = common::name();
         let schema = if b == Backend::Doris {
-            "(id BIGINT,n BIGINT,t VARCHAR(64)) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
+            "(id BIGINT,n BIGINT,t VARCHAR(64)) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) \
+                BUCKETS 1 PROPERTIES('replication_num'='1')"
         } else {
             "(id BIGINT PRIMARY KEY,n BIGINT,t TIME(6))"
         };
@@ -226,7 +239,10 @@ async fn independent_writes_are_not_replayed_after_cancel_or_lost_reply() {
                     if lost {
                         assert!(future.await.is_err());
                     } else {
-                        tokio::select! {_=&mut future=>panic!("write did not pause"),_=p.reached()=>{}}
+                        tokio::select! {
+                            _ = &mut future => panic!("write did not pause"),
+                            _ = p.reached() => {}
+                        }
                     }
                 }
                 assert_eq!(p.fault_reply(), 0);

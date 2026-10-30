@@ -53,5 +53,8 @@ if set(provenance["modified_files"]) != {
 }:
     raise SystemExit("unexpected SQLx patch scope")
 print(
-    f"Verified SQLx {provenance['version']}: {len(provenance['upstream_files'])} upstream files, {len(provenance['modified_files'])} reviewed protocol/transaction/binding/type source changes, full license texts"
+    f"Verified SQLx {provenance['version']}: "
+    f"{len(provenance['upstream_files'])} upstream files, "
+    f"{len(provenance['modified_files'])} reviewed "
+    "protocol/transaction/binding/type source changes, full license texts"
 )

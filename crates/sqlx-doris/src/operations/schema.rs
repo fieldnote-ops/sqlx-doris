@@ -277,7 +277,8 @@ impl DataType {
                 arguments,
             } if function.eq_ignore_ascii_case("count") && arguments.iter().any(|a| a.nullable) => {
                 return Err(Error::Unsupported(
-                    "Doris 4.1.5 nullable COUNT AGG_STATE can lose groups; use non-null COUNT for row counts, or SUM_STATE of explicit 0/1 for nullable-value counts",
+                    "Doris 4.1.5 nullable COUNT AGG_STATE can lose groups; use non-null COUNT \
+                        for row counts, or SUM_STATE of explicit 0/1 for nullable-value counts",
                 ));
             }
             Self::Time(_) => {
@@ -287,7 +288,8 @@ impl DataType {
             }
             Self::VarBinary => {
                 return Err(Error::Unsupported(
-                    "Doris 4.1.5 cannot store VARBINARY in an OLAP table; use an explicit application representation or an external catalog",
+                    "Doris 4.1.5 cannot store VARBINARY in an OLAP table; use an explicit \
+                        application representation or an external catalog",
                 ));
             }
             Self::Array(inner) => inner.validate_olap_storage()?,
@@ -350,7 +352,8 @@ pub(super) fn json_text(expression: &str, data_type: &DataType, depth: usize) ->
             let key = json_text(&format!("STRUCT_ELEMENT({variable},1)"), key, depth + 1);
             let value = json_text(&format!("STRUCT_ELEMENT({variable},2)"), value, depth + 1);
             format!(
-                "CONCAT('[',ARRAY_JOIN(ARRAY_MAP({variable} -> CONCAT('{{\"key\":',{key},',\"value\":',{value},'}}'),MAP_ENTRIES({expression})),','),']')"
+                "CONCAT('[',ARRAY_JOIN(ARRAY_MAP({variable} -> CONCAT('{{\"key\":',{key},',\
+                    \"value\":',{value},'}}'),MAP_ENTRIES({expression})),','),']')"
             )
         }
         DataType::Struct(fields) => {
@@ -679,7 +682,8 @@ impl TableDefinition {
             .collect::<Vec<_>>()
             .join(",");
         let mut sql = format!(
-            "CREATE TABLE {}{} ({}) ENGINE=OLAP {} KEY({keys}) DISTRIBUTED BY HASH({keys}) BUCKETS {}",
+            "CREATE TABLE {}{} ({}) ENGINE=OLAP {} KEY({keys}) DISTRIBUTED BY \
+                HASH({keys}) BUCKETS {}",
             if self.if_not_exists {
                 "IF NOT EXISTS "
             } else {

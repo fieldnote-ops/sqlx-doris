@@ -8,7 +8,11 @@ from mysql_regression_audit import verify_log
 
 class MySqlRegressionAudit(unittest.TestCase):
     def sample(self):
-        return "test one ... ok\ntest two ... ok\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1s\nMYSQL_REGRESSION_IDENTITY official=true\n"
+        return (
+            "test one ... ok\ntest two ... ok\ntest result: ok. 2 passed; 0 failed; 0 "
+            "ignored; 0 measured; 0 filtered out; finished in "
+            "1s\nMYSQL_REGRESSION_IDENTITY official=true\n"
+        )
 
     def test_complete_two_case_execution(self):
         self.assertEqual(

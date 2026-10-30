@@ -34,7 +34,14 @@ async fn new_task(db: &Client, view: &TableName, known: &HashSet<i64>) -> Materi
 }
 async fn create_base(db: &Client) -> TableName {
     let t = common::name();
-    execute(db,format!("CREATE TABLE {t}(id INT,v INT) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')")).await;
+    execute(
+        db,
+        format!(
+            "CREATE TABLE {t}(id INT,v INT) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) \
+        BUCKETS 1 PROPERTIES('replication_num'='1')"
+        ),
+    )
+    .await;
     execute(db, format!("INSERT INTO {t} VALUES(1,2),(1,3)")).await;
     t
 }
@@ -45,7 +52,15 @@ async fn create_view(db: &Client, base: &TableName, slow: bool) -> TableName {
     } else {
         "SUM(v)"
     };
-    execute(db,format!("CREATE MATERIALIZED VIEW {mv} BUILD DEFERRED REFRESH COMPLETE ON MANUAL DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1') AS SELECT id,{value} AS total FROM {base} GROUP BY id")).await;
+    execute(
+        db,
+        format!(
+            "CREATE MATERIALIZED VIEW {mv} BUILD DEFERRED REFRESH COMPLETE ON MANUAL \
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1') AS \
+        SELECT id,{value} AS total FROM {base} GROUP BY id"
+        ),
+    )
+    .await;
     mv
 }
 async fn wait(db: &Client, mv: &TableName, id: i64) -> MaterializedViewTask {

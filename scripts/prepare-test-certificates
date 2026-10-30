@@ -69,7 +69,10 @@ if not (certs / "server_certificate.p12").is_file():
             f"/CN=sqlx-doris-fixture-{role}",
         )
         extension = (
-            "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage="
+            (
+                "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,"
+                "keyEncipherment\nextendedKeyUsage="
+            )
             + purpose
             + "\n"
         )

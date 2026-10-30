@@ -338,7 +338,10 @@ impl<'de> Deserializer<'de> for Value {
     number_method!(deserialize_u128);
     number_method!(deserialize_f32);
     number_method!(deserialize_f64);
-    serde::forward_to_deserialize_any! {bool char str string bytes byte_buf unit unit_struct seq tuple tuple_struct map struct identifier ignored_any}
+    serde::forward_to_deserialize_any! {
+        bool char str string bytes byte_buf unit unit_struct
+        seq tuple tuple_struct map struct identifier ignored_any
+    }
 }
 
 #[cfg(test)]

@@ -173,7 +173,16 @@ async fn sequence_values_control_out_of_order_writes_and_partial_update_inherita
 async fn range_partition_ddl_routing_filter_errors_and_metadata_are_consistent() {
     let db = common::client(Backend::Doris).await;
     let table = common::name();
-    db.pool().execute(sqlx::AssertSqlSafe(format!("CREATE TABLE {table} (d DATE NOT NULL,id BIGINT NOT NULL,value STRING) DUPLICATE KEY(d,id) PARTITION BY RANGE(d) (PARTITION p202601 VALUES [('2026-01-01'),('2026-02-01')),PARTITION p202602 VALUES [('2026-02-01'),('2026-03-01'))) DISTRIBUTED BY HASH(id) BUCKETS 2 PROPERTIES ('replication_num'='1')"))).await.unwrap();
+    db.pool()
+        .execute(sqlx::AssertSqlSafe(format!(
+            "CREATE TABLE {table} (d DATE NOT NULL,id BIGINT NOT NULL,value STRING) \
+        DUPLICATE KEY(d,id) PARTITION BY RANGE(d) (PARTITION p202601 VALUES \
+        [('2026-01-01'),('2026-02-01')),PARTITION p202602 VALUES [('2026-02-01'),\
+        ('2026-03-01'))) DISTRIBUTED BY HASH(id) BUCKETS 2 PROPERTIES \
+        ('replication_num'='1')"
+        )))
+        .await
+        .unwrap();
     let insert = format!("INSERT INTO {table} VALUES (?,?,?)");
     for (id, month) in [(1_i64, 1), (2, 2)] {
         sqlx::query(sqlx::AssertSqlSafe(insert.clone()))
@@ -260,7 +269,9 @@ async fn cached_prepared_results_refresh_after_type_width_and_column_count_chang
             format!("CREATE TABLE {table}(id BIGINT PRIMARY KEY,value INT NOT NULL)")
         } else {
             format!(
-                "CREATE TABLE {table}(id BIGINT NOT NULL,value INT NOT NULL) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num'='1','light_schema_change'='false')"
+                "CREATE TABLE {table}(id BIGINT NOT NULL,value INT NOT NULL) UNIQUE KEY(id) \
+                    DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num'='1',\
+                    'light_schema_change'='false')"
             )
         };
         db.pool().execute(sqlx::AssertSqlSafe(ddl)).await.unwrap();
@@ -359,7 +370,8 @@ async fn cached_prepared_results_refresh_after_type_width_and_column_count_chang
             format!("CREATE TABLE {table}(id BIGINT PRIMARY KEY,value VARCHAR(64),note INT)")
         } else {
             format!(
-                "CREATE TABLE {table}(id BIGINT NOT NULL,value VARCHAR(64),note INT) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num'='1')"
+                "CREATE TABLE {table}(id BIGINT NOT NULL,value VARCHAR(64),note INT) UNIQUE \
+                    KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num'='1')"
             )
         };
         db.pool()

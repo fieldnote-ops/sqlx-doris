@@ -3,7 +3,9 @@
 包括纯 Rust、协议模型、双库功能和故障注入、原版 SQLx 对照、安装消费者及宏。
 编译检查与真实执行分开；限制负例通过不等于数据库支持相应功能。
 
-开发脚本需要 Python 3.12+；统一排版可用 Black25.1.0 和 `./scripts/dev ./scripts/format --check`。
+开发脚本需要 Python 3.12+；排版使用 Rustfmt 和 Black25.1.0。
+`./scripts/dev ./scripts/format --check` 检查工作区 Rust、独立 Rust 消费者及 Python 脚本。
+编辑器缩进遵循仓库的 .editorconfig。
 
 ## 本机构建路径
 
@@ -68,7 +70,10 @@ HTTP TLS 代理案例当前使用 Doris 的 root 空密码测试账号；它只�
 证书生成脚本不更改数据库配置，也不重启服务。测试前应把生成的证书配置到两个专用实例：
 
 - MySQL：ssl_ca、ssl_cert、ssl_key 分别指向 ca.pem、server-cert.pem、server-key.pem，并启用 TLS。
-- Doris FE：enable_ssl=true；mysql_ssl_default_ca_certificate 指向 ca_certificate.p12；mysql_ssl_default_server_certificate 指向 server_certificate.p12；两项对应的 *_password 均为 fixture。
+- Doris FE：设置 `enable_ssl=true`；
+  `mysql_ssl_default_ca_certificate` 指向 ca_certificate.p12，
+  `mysql_ssl_default_server_certificate` 指向 server_certificate.p12；
+  两项对应的 `*_password` 均为 fixture。
 
 上述路径由实例部署决定，证书目录以生成脚本输出为准。不要把这些公开用途的测试口令和证书用于生产。
 配置完后运行 test-live；证书、端点或权限缺失都会失败，不会跳过后仍报成功。

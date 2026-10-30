@@ -83,7 +83,8 @@ fn compare(a: &Option<Vec<u8>>, b: &Option<Vec<u8>>, op: &str) -> Option<i64> {
 async fn seed(db: &Client) -> TableName {
     let t = common::name();
     let schema = if db.backend() == Backend::Doris {
-        "(id BIGINT,b STRING,n BIGINT) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
+        "(id BIGINT,b STRING,n BIGINT) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) \
+            BUCKETS 1 PROPERTIES('replication_num'='1')"
     } else {
         "(id BIGINT PRIMARY KEY,b LONGBLOB,n BIGINT)"
     };
@@ -210,7 +211,8 @@ async fn byte_ranges_match_unsigned_oracle_with_null_modes_cache_and_ordering() 
             assert_eq!(actual, expected, "{b:?}/ORDER BY desc={desc}");
         }
         eprintln!(
-            "{b:?}: {queries} range SELECTs checked independently, plus ASC/DESC storage-order controls"
+            "{b:?}: {queries} range SELECTs checked independently, plus ASC/DESC \
+                storage-order controls"
         );
         drop(c);
         common::drop_table(&db, &t).await;
@@ -443,7 +445,10 @@ async fn cached_range_writes_cancel_or_lose_reply_without_replay() {
                             if lost {
                                 assert!(future.await.is_err())
                             } else {
-                                tokio::select! {_=&mut future=>panic!("write did not pause"),_=p.reached()=>{}}
+                                tokio::select! {
+                                    _ = &mut future => panic!("write did not pause"),
+                                    _ = p.reached() => {}
+                                }
                             }
                         }
                         drop(tx);
@@ -457,7 +462,10 @@ async fn cached_range_writes_cancel_or_lose_reply_without_replay() {
                         if lost {
                             assert!(future.await.is_err())
                         } else {
-                            tokio::select! {_=&mut future=>panic!("write did not pause"),_=p.reached()=>{}}
+                            tokio::select! {
+                                _ = &mut future => panic!("write did not pause"),
+                                _ = p.reached() => {}
+                            }
                         }
                     }
                     assert_eq!(p.fault_reply(), 0);

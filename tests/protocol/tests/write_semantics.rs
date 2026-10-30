@@ -34,7 +34,9 @@ async fn ddl(c: &mut MySqlConnection, name: &str, model: &str) {
         format!("CREATE TABLE {name} (id BIGINT PRIMARY KEY, value BIGINT) ENGINE=InnoDB")
     } else {
         format!(
-            "CREATE TABLE {name} (id BIGINT NOT NULL, value BIGINT) ENGINE=OLAP {model} KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num'='1', 'group_commit_interval_ms'='1000')"
+            "CREATE TABLE {name} (id BIGINT NOT NULL, value BIGINT) ENGINE=OLAP {model} \
+                KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num'='1', \
+                'group_commit_interval_ms'='1000')"
         )
     };
     c.execute(AssertSqlSafe(sql)).await.unwrap();

@@ -161,8 +161,13 @@ async fn opaque_aggregation_columns_are_constructed_merged_and_read_via_scalar_f
         .unwrap();
     }
     let actual: (i64, i64, f64, f64, f64) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT BITMAP_COUNT(bits),HLL_CARDINALITY(users),QUANTILE_PERCENT(latencies,0.0),QUANTILE_PERCENT(latencies,0.5),QUANTILE_PERCENT(latencies,1.0) FROM {table}"
-    ))).fetch_one(db.pool()).await.unwrap();
+        "SELECT BITMAP_COUNT(bits),HLL_CARDINALITY(users),QUANTILE_PERCENT(latencies,\
+            0.0),QUANTILE_PERCENT(latencies,0.5),QUANTILE_PERCENT(latencies,1.0) FROM \
+            {table}"
+    )))
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
     assert_eq!((actual.0, actual.1), (2, 2));
     for (value, expected) in [(actual.2, 10.), (actual.3, 20.), (actual.4, 30.)] {
         assert!((value - expected).abs() < 1e-9, "{actual:?}");
@@ -243,9 +248,13 @@ async fn aggregate_state_signatures_support_bound_construction_merge_union_and_r
     .await
     .unwrap();
     assert_eq!(rows, [(1, 2), (2, 1)]);
-    let combined:i32 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT MAX_BY_MERGE(merged) FROM (SELECT MAX_BY_UNION(state_value) AS merged FROM {table} GROUP BY id) t"
-    ))).fetch_one(db.pool()).await.unwrap();
+    let combined: i32 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT MAX_BY_MERGE(merged) FROM (SELECT MAX_BY_UNION(state_value) AS \
+            merged FROM {table} GROUP BY id) t"
+    )))
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
     assert_eq!(combined, 1);
     // The planner can coerce an input width within the same state function.
     sqlx::query(sqlx::AssertSqlSafe(format!(

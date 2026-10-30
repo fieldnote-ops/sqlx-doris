@@ -110,7 +110,7 @@ async fn send_and_read(http: &StreamLoadClient, db: &Client, name: &TableName) {
     let receipt = http
         .load(name)
         .unwrap()
-        .send_json(&serde_json::json!([{"id":1,"note":note}]))
+        .send_json(&serde_json::json!([{ "id": 1, "note": note }]))
         .await
         .unwrap();
     assert!(receipt.is_visible());
@@ -207,7 +207,7 @@ async fn https_to_http_redirect_is_rejected_without_a_backend_write() {
     let error = client(&proxy.fe, "ca.pem", false)
         .load(&name)
         .unwrap()
-        .send_json(&serde_json::json!([{"id":1,"note":"must not load"}]))
+        .send_json(&serde_json::json!([{ "id": 1, "note": "must not load" }]))
         .await
         .unwrap_err();
     assert!(matches!(error, Error::InvalidInput(_)), "{error:?}");

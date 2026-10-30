@@ -122,9 +122,13 @@ async fn single_connection_client_with_timeout(backend: Backend, timeout: Durati
 
 async fn create(db: &Client, table: &TableName) {
     if db.backend() == Backend::MySql {
-        db.pool().execute(sqlx::AssertSqlSafe(format!(
-            "CREATE TABLE {table} (id BIGINT PRIMARY KEY,group_id BIGINT NULL,payload MEDIUMTEXT NULL)"
-        ))).await.unwrap();
+        db.pool()
+            .execute(sqlx::AssertSqlSafe(format!(
+                "CREATE TABLE {table} (id BIGINT PRIMARY KEY,group_id BIGINT NULL,payload \
+                MEDIUMTEXT NULL)"
+            )))
+            .await
+            .unwrap();
     } else {
         db.create_table(
             &TableDefinition::new(table.clone(), TableModel::Unique, ["id"])
@@ -192,7 +196,10 @@ async fn join_aggregate_subquery_aliases_and_optional_rows_use_the_same_queries_
             .collect::<Vec<_>>();
         insert(&db, &labels, &rows).await;
         let query = format!(
-            "SELECT b.id AS group_id,b.payload AS label,CAST(COUNT(*) AS SIGNED) AS row_count,CAST(SUM(a.id) AS SIGNED) AS total FROM {facts} a JOIN {labels} b ON a.group_id=b.id WHERE a.id IN (SELECT id FROM {facts} WHERE id>=?) GROUP BY b.id,b.payload HAVING COUNT(*)>=? ORDER BY b.id"
+            "SELECT b.id AS group_id,b.payload AS label,CAST(COUNT(*) AS SIGNED) AS \
+                row_count,CAST(SUM(a.id) AS SIGNED) AS total FROM {facts} a JOIN {labels} b \
+                ON a.group_id=b.id WHERE a.id IN (SELECT id FROM {facts} WHERE id>=?) GROUP \
+                BY b.id,b.payload HAVING COUNT(*)>=? ORDER BY b.id"
         );
         let actual: Vec<Summary> = sqlx::query_as(sqlx::AssertSqlSafe(query))
             .bind(10_i64)

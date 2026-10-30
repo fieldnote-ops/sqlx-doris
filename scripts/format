@@ -25,6 +25,20 @@ args = parser.parse_args()
 subprocess.run(
     ["cargo", "fmt", "--all", *(["--", "--check"] if args.check else [])], check=True
 )
+standalone_rust = sorted(Path("tools").glob("*.rs"))
+if standalone_rust:
+    subprocess.run(
+        [
+            "rustfmt",
+            "--edition",
+            "2024",
+            "--config",
+            "skip_children=true",
+            *(["--check"] if args.check else []),
+            *map(str, standalone_rust),
+        ],
+        check=True,
+    )
 files = [
     str(path)
     for root in ("scripts", "tools", "tests", "crates/sqlx-doris/tests/support")
