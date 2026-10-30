@@ -1,84 +1,113 @@
 # sqlx-doris
 
-SQLx 0.9.0 的 MySQL/Apache Doris 统一访问库，Rust 1.94+。受测基线 MySQL 8.4.13、官方 Doris 4.1.5；0.1.0 尚未公开发布。
-保留原生 MySql、连接池、行和事务类型，Doris 设计差异保持原义，不模拟任意 MySQL SQL。
+MySQL 与 Apache Doris 的 Rust SQLx 统一访问库。业务使用原生 `MySqlPool`、`.bind()` 和结果映射，连接时选择数据库后端。
+Doris 的类型、表模型和事务规则保持原生语义。
 
-## 项目背景
+当前为 0.1.0，尚未公开发布；要求 Rust 1.94+，SQLx 固定为 0.9.0。
+已测试 MySQL 8.4.13 和官方 Doris 4.1.5。
 
-这是对 2022 年一个 Doris 与 MySQL 混用项目的重构。当时为了优化性能，一些业务表会在 Doris 和 MySQL 之间来回调整。
-Python 实现中选用的驱动能支持较新版本的 MySQL，却不能直接兼容当时的 Doris；Doris 侧还得使用兼容旧版 MySQL 的驱动。
-表换了库，驱动、连接配置和数据访问代码也得跟着调整。
+## 安装配套包
 
-这次重构希望减少这类切换成本：基于 Rust SQLx，让业务尽量复用同一套查询、参数绑定和结果映射，按连接配置选择数据库。
-Doris 与 MySQL 本身的语义差异仍然保留，项目不负责迁表，也不承诺所有 SQL 完全兼容。
+在一个空的工作目录中放入获取的配套包，执行：
 
-## 安装
-
-```toml
-[dependencies]
-sqlx-doris = { path = "../sqlx-doris/crates/sqlx-doris" }
-
-[patch.crates-io]
-sqlx-mysql = { path = "../sqlx-doris/patches/sqlx-mysql" }
+```sh
+tar -xzf sqlx-doris-compat-0.1.0.tar.gz
+mkdir -p sdk-demo/src
 ```
 
-路径相对于应用 workspace 根 Cargo.toml。已有直接 SQLx 依赖时对齐到 `=0.9.0`。
-patch 必须配置在应用 workspace 根，保证应用、宏与库使用同一个 sqlx-mysql；SDK 单个.crate 不会传递 patch，遗漏会明确编译失败。
-配套包的 SDK 位于 `sdk/sqlx-doris-0.1.0`，driver 位于 `patches/sqlx-mysql`，按解包目录调整路径。
+目录布局应为：
 
-示例假设两库已各自建好包含 id/name 的 items 表，在 Tokio 异步上下文调用 example。
+```text
+work/
+  sqlx-doris-compat-0.1.0/
+    sdk/sqlx-doris-0.1.0/
+    patches/sqlx-mysql/
+  sdk-demo/
+    Cargo.toml
+    src/main.rs
+```
 
-## 共用查询
+把下面内容保存为 sdk-demo/Cargo.toml：
+
+```toml
+[package]
+name = "sdk-demo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+sqlx-doris = { path = "../sqlx-doris-compat-0.1.0/sdk/sqlx-doris-0.1.0" }
+sqlx = { version = "=0.9.0", default-features = false, features = ["mysql", "derive"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[patch.crates-io]
+sqlx-mysql = { path = "../sqlx-doris-compat-0.1.0/patches/sqlx-mysql" }
+```
+
+这个独立应用中，两条 path 都相对于 sdk-demo/Cargo.toml；实际目录名不同时调整路径。
+已有 Cargo workspace 时，依赖的 path 相对于声明它的 Cargo.toml；`[patch.crates-io]` 必须放在 workspace 根，
+其中的 path 相对于根 Cargo.toml。库内部的 patch 不会传递给应用。
+单独的 SDK .crate 不含配套驱动，不能替代整个 compat 包。
+
+示例直接声明 SQLx 是为了使用 `#[derive(sqlx::FromRow)]`，Tokio 提供异步运行时。
+已有 SQLx 项目也要对齐到 `=0.9.0`，让应用、宏和 SDK 使用同一个 sqlx-mysql。
+
+## 运行第一个程序
+
+把以下代码保存为 sdk-demo/src/main.rs：
 
 ```rust,no_run
-use sqlx_doris::{Backend, PoolBuilder, sqlx};
+use sqlx_doris::{Backend, PoolBuilder};
 
 #[derive(Debug, sqlx::FromRow)]
-struct Item {
+struct Greeting {
     id: i64,
     name: String,
 }
 
-async fn find(pool: &sqlx::MySqlPool, id: i64) -> Result<Option<Item>, sqlx::Error> {
-    sqlx::query_as("SELECT id, name FROM items WHERE id = ?")
-        .bind(id)
-        .fetch_optional(pool)
+async fn greeting(pool: &sqlx::MySqlPool) -> sqlx::Result<Greeting> {
+    sqlx::query_as("SELECT CAST(? AS SIGNED) AS id, ? AS name")
+        .bind(42_i64)
+        .bind("hello")
+        .fetch_one(pool)
         .await
 }
 
-pub async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    let mysql = PoolBuilder::new(Backend::MySql)
-        .connect(&std::env::var("MYSQL_URL")?)
-        .await?;
-    let doris = PoolBuilder::new(Backend::Doris)
-        .connect(&std::env::var("DORIS_URL")?)
-        .await?;
-    let _ = find(mysql.pool(), 42).await?;
-    let _ = find(doris.pool(), 42).await?;
-    mysql.close().await;
-    doris.close().await;
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    for (backend, variable) in [
+        (Backend::MySql, "MYSQL_URL"),
+        (Backend::Doris, "DORIS_URL"),
+    ] {
+        let db = PoolBuilder::new(backend)
+            .connect(&std::env::var(variable)?)
+            .await?;
+        let row = greeting(db.pool()).await?;
+        println!("{backend:?}: id={}, name={}", row.id, row.name);
+        db.close().await;
+    }
     Ok(())
 }
 ```
 
-## 类型、事务与安全
+在 sdk-demo 目录设置连接并运行。把账号和地址换成自己的值，app 库需要已存在：
 
-- SQLx 原生 query/`query_as`/`query_scalar`、FromRow 和 QueryBuilder 可直接使用。
-- Doris 声明范围的 VALUES、静态 DEFAULT、BLOB 条件与 TIME/分页参数内部适配，继续原 SQL 和.bind()。
-- BLOB 支持简单列比较、IN/NOT IN 和 BETWEEN/NOT BETWEEN；复杂 CASE/函数/LIKE 等不伪造等价支持。
-- 原生 `Transaction<MySql>`支持顶层写事务；Doris 事务内查询/DDL、savepoint 和跨库事务不模拟。取消/未知状态退役连接，不重放不确定写入。
-- types 提供 LargeInt、Time、`TimestampTz`、`Array/Map/Struct/Variant`、IP、Binary/Hex；
-  复杂值可用 operations::push_complex_value 逐叶绑定。
-- MySqlTime 保留 MySQL 原生范围；Doris 完整微秒边界使用 types::Time。Doris 内部 OLAP 不支持 TIME 列，查询和显式 STRING 表示分开。
-- VARIANT 可能归一化或丢失展示信息；宽 Decimal 按目标 precision/scale 处理，不能从客户端还原已丢失的信息。
-- operations 提供显式表模型、元数据及异步物化视图任务观察；提交接受与数据可见不同，需检查状态。
-- 默认 stream-load 启用 HTTP 导入；macros 按需要启用。SDK 单包不会传递 Cargo patch。
+```sh
+export MYSQL_URL='mysql://user:password@mysql-host:3306/app'
+export DORIS_URL='mysql://user:password@doris-fe:9030/app'
+cargo run
+```
 
-PoolBuilder 默认 Doris 严格 CAST、Decimal256 开启、GroupCommit 关闭；可显式配置。
-MySQL 的 TIME 列表共同域便利可通过 mysql_time_membership_compatibility(false)关闭；from_pool 不会补装初始化选项。
-SQL 与 HTTP 的 TLS/CA/主机名、BE 可达地址按实际部署配置，不允许验证失败降级。
+程序不建表，只绑定两个参数并读取结果。成功时两库都会输出 `id=42, name=hello`。
+Doris 的 SQL 连接也用 mysql:// URL；`Backend::Doris` 才会启用对应兼容选项，不能只换 URL 而保留 `Backend::MySql`。
 
-可运行示例：examples/dual_pool.rs、native_types.rs、stream_load.rs、query_macro.rs 和 doris_query_macro.rs。
-完整使用、兼容边界及测试复现文档随 Git 源码提供。性能依赖 SQL、表模型和环境，不承诺全场景与原生 SQLx 等价。
+## 后续使用
 
-SDK 使用 Apache-2.0；companion 保留上游 Apache-2.0 OR MIT 许可证及来源清单。
+默认启用 `stream-load`，HTTP 导入使用 `stream_load::StreamLoadClient`；只做 SQL 查询时可设 `default-features = false`。
+需要 SQLx 的 `query!`、`query_as!` 时开启 `macros`，并为目标数据库准备在线描述或离线缓存。
+
+支持的 BLOB/TIME 参数、默认值和分页写法有范围限制。Doris 事务内读取、savepoint、表模型与 MySQL 不同，不能把所有 SQL 当成完全等价。
+写入或提交结果不确定时不会自动重发，应由业务查询最终状态。
+
+完整源码附有 docs/INSTALLATION.md、docs/USAGE.md、docs/COMPATIBILITY.md 和 docs/TESTING.md，包含连接选项、示例命令与测试结果。
+SDK 使用 Apache-2.0；随附驱动保留上游 Apache-2.0 OR MIT 许可证。

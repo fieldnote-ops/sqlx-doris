@@ -192,7 +192,7 @@ def verify_bundle(project, archive, sdk_files, version):
     if (
         "[patch.crates-io]" not in readme
         or "sqlx-mysql" not in readme
-        or "workspace-root" not in readme
+        or not any(scope in readme for scope in ("workspace-root", "workspace 的根"))
     ):
         raise ValueError(
             "required application-root companion installation instructions missing"

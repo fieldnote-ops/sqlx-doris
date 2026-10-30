@@ -77,7 +77,9 @@ class DeliveryTests(unittest.TestCase):
                 self.payload[
                     "patches/" + str(p.relative_to(self.project / "patches"))
                 ] = p.read_bytes()
-        self.payload["README.md"] = b"workspace-root [patch.crates-io] sqlx-mysql"
+        self.payload["README.md"] = (
+            "应用或 Cargo workspace 的根 Cargo.toml 配置 [patch.crates-io] sqlx-mysql"
+        ).encode()
 
     def make_sdk(self):
         write_tar(self.archive, "sqlx-doris-0.1.0/", self.files)

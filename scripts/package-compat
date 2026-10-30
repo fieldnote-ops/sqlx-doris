@@ -51,21 +51,18 @@ with tempfile.TemporaryDirectory(prefix="compat-bundle-") as temporary:
     ]:
         shutil.copy2(project / "patches" / name, stage / "patches" / name)
     (stage / "README.md").write_text(
-        """# SQLx Doris 0.1 local compatibility bundle
+        """# sqlx-doris 0.1.0 配套包
 
-Use paths relative to your application's workspace-root Cargo.toml:
+本包包含 SDK 和必须配套使用的 sqlx-mysql 0.9.0 驱动。
+按 [SDK 安装指南](sdk/sqlx-doris-0.1.0/README.md)准备应用目录，
+其中提供完整的 Cargo.toml、main.rs、连接配置和运行步骤。
 
-```toml
-[dependencies]
-sqlx-doris = { path = "../sqlx-doris-compat-0.1.0/sdk/sqlx-doris-0.1.0" }
+应用或 Cargo workspace 的根 Cargo.toml 必须配置 `[patch.crates-io]`，
+让应用、SQLx 宏和 SDK 共用原生 MySql 类型。只引入 SDK .crate 不会启用驱动补丁。
 
-[patch.crates-io]
-sqlx-mysql = { path = "../sqlx-doris-compat-0.1.0/patches/sqlx-mysql" }
-```
-
-The SDK .crate alone does not activate this patch. The root override is required
-for SQLx 0.9.0's short PrepareOk fix and a shared native MySql type. See the SDK
-README and patches/README.md for boundaries and provenance. Not published.
+[驱动说明](patches/README.md)记录兼容处理、来源和许可证。
+完整使用、兼容范围和测试说明见源码包的 docs 目录。
+本版本尚未公开发布。
 """
     )
     files = {
