@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             format!("_consumer_prepare_{}", std::process::id())
         };
         if cleanup_macro {
-            ::sqlx::raw_sql(::sqlx::AssertSqlSafe(format!("DROP TABLE {table}")))
+            sqlx_doris::sqlx::raw_sql(sqlx_doris::sqlx::AssertSqlSafe(format!("DROP TABLE {table}")))
                 .execute(db.pool())
                 .await?;
             db.close().await;
@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             "(id BIGINT NOT NULL,v BIGINT NOT NULL)"
         };
-        ::sqlx::raw_sql(::sqlx::AssertSqlSafe(format!(
+        sqlx_doris::sqlx::raw_sql(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "CREATE TABLE {table} {definition}"
         )))
         .execute(db.pool())
@@ -42,13 +42,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let insert = format!("INSERT INTO {table} VALUES (1,3)");
         let mut connection = db.pool().acquire().await?;
-        let first = ::sqlx::query(::sqlx::AssertSqlSafe(insert.as_str()))
+        let first = sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(insert.as_str()))
             .execute(&mut *connection)
             .await;
         assert_eq!(first?.rows_affected(), 1);
         for persistent in [true, true, false] {
             assert_eq!(
-                ::sqlx::query(::sqlx::AssertSqlSafe(insert.as_str()))
+                sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(insert.as_str()))
                     .persistent(persistent)
                     .execute(&mut *connection)
                     .await?
@@ -57,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
         assert_eq!(
-            ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+            sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
                 "INSERT INTO {table} VALUES (?,?)"
             )))
             .bind(2_i64)
@@ -67,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .rows_affected(),
             1
         );
-        let rows: Vec<(i64, i64)> = ::sqlx::query_as(::sqlx::AssertSqlSafe(format!(
+        let rows: Vec<(i64, i64)> = sqlx_doris::sqlx::query_as(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "SELECT id,v FROM {table} ORDER BY id"
         )))
         .fetch_all(&mut *connection)
@@ -79,22 +79,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 passed; exactly five stored rows"
         );
         // Native Transaction has the application's own SQLx MySql identity.
-        let mut tx: ::sqlx::Transaction<'_, ::sqlx::MySql> = db.pool().begin().await?;
-        ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+        let mut tx: sqlx_doris::sqlx::Transaction<'_, sqlx_doris::sqlx::MySql> = db.pool().begin().await?;
+        sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "INSERT INTO {table} VALUES (?,?)"
         )))
         .bind(3_i64)
         .bind(9_i64)
         .execute(&mut *tx)
         .await?;
-        ::sqlx::raw_sql(::sqlx::AssertSqlSafe(format!(
+        sqlx_doris::sqlx::raw_sql(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "INSERT INTO {table} VALUES (6,18)"
         )))
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
         let mut tx = db.pool().begin().await?;
-        ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+        sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "INSERT INTO {table} VALUES (?,?)"
         )))
         .bind(4_i64)
@@ -103,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
         tx.rollback().await?;
         let mut tx = db.pool().begin().await?;
-        ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+        sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "INSERT INTO {table} VALUES (?,?)"
         )))
         .bind(5_i64)
@@ -111,7 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .execute(&mut *tx)
         .await?;
         drop(tx);
-        let count: i64 = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+        let count: i64 = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "SELECT COUNT(*) FROM {table}"
         )))
         .fetch_one(db.pool())
@@ -121,7 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "{backend:?}: native application Transaction bind/text mix and \
                 commit/rollback/drop passed"
         );
-        ::sqlx::raw_sql(::sqlx::AssertSqlSafe(format!("DROP TABLE {table}")))
+        sqlx_doris::sqlx::raw_sql(sqlx_doris::sqlx::AssertSqlSafe(format!("DROP TABLE {table}")))
             .execute(db.pool())
             .await?;
         let binary_table = format!("{table}_binary_time");
@@ -131,13 +131,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             "(id BIGINT PRIMARY KEY,b LONGBLOB,t TIME(6))"
         };
-        ::sqlx::raw_sql(::sqlx::AssertSqlSafe(format!(
+        sqlx_doris::sqlx::raw_sql(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "CREATE TABLE {binary_table}{columns}"
         )))
         .execute(db.pool())
         .await?;
-        let time = ::sqlx::mysql::types::MySqlTime::new(
-            ::sqlx::mysql::types::MySqlTimeSign::Negative,
+        let time = sqlx_doris::sqlx::mysql::types::MySqlTime::new(
+            sqlx_doris::sqlx::mysql::types::MySqlTimeSign::Negative,
             0,
             0,
             0,
@@ -145,8 +145,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         let bytes: Vec<u8> = (0..=255).collect();
         for action in ["commit", "rollback", "drop"] {
-            let mut tx: ::sqlx::Transaction<'_, ::sqlx::MySql> = db.pool().begin().await?;
-            ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+            let mut tx: sqlx_doris::sqlx::Transaction<'_, sqlx_doris::sqlx::MySql> = db.pool().begin().await?;
+            sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
                 "INSERT INTO {binary_table} VALUES(?,?,?)"
             )))
             .bind(match action {
@@ -165,7 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         let mut tx = db.pool().begin().await?;
-        ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+        sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "INSERT INTO {binary_table} VALUES(?,?,?)"
         )))
         .bind(2_i64)
@@ -174,8 +174,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        let actual: Vec<(i64, Vec<u8>, ::sqlx::mysql::types::MySqlTime)> =
-            ::sqlx::query_as(::sqlx::AssertSqlSafe(format!(
+        let actual: Vec<(i64, Vec<u8>, sqlx_doris::sqlx::mysql::types::MySqlTime)> =
+            sqlx_doris::sqlx::query_as(sqlx_doris::sqlx::AssertSqlSafe(format!(
                 "SELECT id,b,CAST(t AS TIME(6)) FROM {binary_table} ORDER BY id"
             )))
             .fetch_all(db.pool())
@@ -184,8 +184,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             actual,
             [(1, bytes.clone(), time), (2, b"utf8\0'\\".to_vec(), time)]
         );
-        let selected: (i64, Vec<u8>, ::sqlx::mysql::types::MySqlTime) =
-            ::sqlx::query_as(::sqlx::AssertSqlSafe(format!(
+        let selected: (i64, Vec<u8>, sqlx_doris::sqlx::mysql::types::MySqlTime) =
+            sqlx_doris::sqlx::query_as(sqlx_doris::sqlx::AssertSqlSafe(format!(
                 "SELECT id,b,CAST(t AS TIME(6)) FROM {binary_table} WHERE b=?"
             )))
             .bind(&bytes)
@@ -196,7 +196,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "{backend:?}: application's native WHERE b=? and byte bind preserved raw \
                 bytes and signed TIME without manual HEX"
         );
-        let included: Vec<i64> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+        let included: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "SELECT id FROM {binary_table} WHERE b IN(?,?) ORDER BY id"
         )))
         .bind(&bytes)
@@ -204,7 +204,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .fetch_all(db.pool())
         .await?;
         assert_eq!(included, [1]);
-        let unknown: Vec<i64> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+        let unknown: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "SELECT id FROM {binary_table} WHERE b NOT IN(?,NULL) ORDER BY id"
         )))
         .bind(&bytes)
@@ -213,7 +213,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         assert!(unknown.is_empty());
         let replacement = vec![255_u8, 128, 0, 39, 92];
         let mut tx = db.pool().begin().await?;
-        ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+        sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "UPDATE {binary_table} SET b=? WHERE b IN(?,NULL)"
         )))
         .bind(&replacement)
@@ -221,7 +221,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        let actual: Vec<u8> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+        let actual: Vec<u8> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "SELECT b FROM {binary_table} WHERE b IN(?)"
         )))
         .bind(&replacement)
@@ -229,14 +229,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
         assert_eq!(actual, replacement);
         let mut tx = db.pool().begin().await?;
-        ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+        sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "DELETE FROM {binary_table} WHERE b NOT IN(?)"
         )))
         .bind(&replacement)
         .execute(&mut *tx)
         .await?;
         tx.rollback().await?;
-        let count: i64 = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+        let count: i64 = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "SELECT COUNT(*) FROM {binary_table}"
         )))
         .fetch_one(db.pool())
@@ -247,7 +247,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 transaction outcomes"
         );
         let mut tx = db.pool().begin().await?;
-        ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+        sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "INSERT INTO {binary_table} VALUES(3,?,?)"
         )))
         .bind(None::<Vec<u8>>)
@@ -255,21 +255,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        let different: Vec<i64> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+        let different: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "SELECT id FROM {binary_table} WHERE b<>? ORDER BY id"
         )))
         .bind(&replacement)
         .fetch_all(db.pool())
         .await?;
         assert_eq!(different, [2]);
-        let unknown: Vec<i64> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+        let unknown: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "SELECT id FROM {binary_table} WHERE b!=?"
         )))
         .bind(None::<Vec<u8>>)
         .fetch_all(db.pool())
         .await?;
         assert!(unknown.is_empty());
-        let only_null: Vec<i64> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+        let only_null: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "SELECT id FROM {binary_table} WHERE ?<=>b"
         )))
         .bind(None::<Vec<u8>>)
@@ -278,7 +278,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(only_null, [3]);
         let compare_bytes = vec![255_u8, 254, 0, 128];
         let mut tx = db.pool().begin().await?;
-        ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+        sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "UPDATE {binary_table} SET b=? WHERE b<=>?"
         )))
         .bind(&compare_bytes)
@@ -286,7 +286,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        let actual: Vec<u8> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+        let actual: Vec<u8> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "SELECT b FROM {binary_table} WHERE b<=>?"
         )))
         .bind(&compare_bytes)
@@ -294,28 +294,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
         assert_eq!(actual, compare_bytes);
         let mut tx = db.pool().begin().await?;
-        ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+        sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "DELETE FROM {binary_table} WHERE b!=?"
         )))
         .bind(&replacement)
         .execute(&mut *tx)
         .await?;
         tx.rollback().await?;
-        let count: i64 = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+        let count: i64 = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "SELECT COUNT(*) FROM {binary_table}"
         )))
         .fetch_one(db.pool())
         .await?;
         assert_eq!(count, 3);
         let mut tx = db.pool().begin().await?;
-        ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+        sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "DELETE FROM {binary_table} WHERE ?<=>b"
         )))
         .bind(&compare_bytes)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        let count: i64 = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+        let count: i64 = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "SELECT COUNT(*) FROM {binary_table}"
         )))
         .fetch_one(db.pool())
@@ -325,39 +325,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "{backend:?}: application's native <>/!=/<=> byte binds preserved NULL truth \
                 and transaction outcomes"
         );
-        let negative = ::sqlx::mysql::types::MySqlTime::new(
-            ::sqlx::mysql::types::MySqlTimeSign::Negative,
+        let negative = sqlx_doris::sqlx::mysql::types::MySqlTime::new(
+            sqlx_doris::sqlx::mysql::types::MySqlTimeSign::Negative,
             0,
             0,
             0,
             1,
         )?;
         for persistent in [true, true, false] {
-            let got: ::sqlx::mysql::types::MySqlTime =
-                ::sqlx::query_scalar("SELECT CAST(? AS TIME(6))")
+            let got: sqlx_doris::sqlx::mysql::types::MySqlTime =
+                sqlx_doris::sqlx::query_scalar("SELECT CAST(? AS TIME(6))")
                     .bind(negative)
                     .persistent(persistent)
                     .fetch_one(db.pool())
                     .await?;
             assert_eq!(got, negative);
         }
-        ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+        sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "UPDATE {binary_table} SET t=? WHERE id=?"
         )))
         .bind(negative)
         .bind(1_i64)
         .execute(db.pool())
         .await?;
-        let got: ::sqlx::mysql::types::MySqlTime = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(
+        let got: sqlx_doris::sqlx::mysql::types::MySqlTime = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(
             format!("SELECT t FROM {binary_table} WHERE id=?"),
         ))
         .bind(1_i64)
         .fetch_one(db.pool())
         .await?;
         assert_eq!(got, negative);
-        let null: Option<::sqlx::mysql::types::MySqlTime> =
-            ::sqlx::query_scalar("SELECT CAST(? AS TIME(6))")
-                .bind(None::<::sqlx::mysql::types::MySqlTime>)
+        let null: Option<sqlx_doris::sqlx::mysql::types::MySqlTime> =
+            sqlx_doris::sqlx::query_scalar("SELECT CAST(? AS TIME(6))")
+                .bind(None::<sqlx_doris::sqlx::mysql::types::MySqlTime>)
                 .fetch_one(db.pool())
                 .await?;
         assert!(null.is_none());
@@ -365,7 +365,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "{backend:?}: application's native outside-transaction TIME binds and \
                 original DTO preserved signed microseconds, NULL and cache"
         );
-        let actual: Vec<i64> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+        let actual: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "SELECT id FROM {binary_table} WHERE (b IN(?,NULL) OR t<=>?) AND NOT(t<>?) ORDER BY id"
         )))
         .bind(vec![222_u8])
@@ -378,15 +378,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "{backend:?}: application's original mixed byte/TIME predicate and ordered \
                 binds preserved NULL truth"
         );
-        let zero = ::sqlx::mysql::types::MySqlTime::ZERO;
-        ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+        let zero = sqlx_doris::sqlx::mysql::types::MySqlTime::ZERO;
+        sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "UPDATE {binary_table} SET t=? WHERE id=1"
         )))
         .bind(zero)
         .execute(db.pool())
         .await?;
         for persistent in [true, true, false] {
-            let ids: Vec<i64> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+            let ids: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
                 "SELECT id FROM {binary_table} WHERE t IN(?,?) ORDER BY id"
             )))
             .bind(negative)
@@ -395,7 +395,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .fetch_all(db.pool())
             .await?;
             assert_eq!(ids, [1, 2]);
-            let ids: Vec<i64> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+            let ids: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
                 "SELECT id FROM {binary_table} WHERE t NOT IN(?,?,NULL) ORDER BY id"
             )))
             .bind(zero)
@@ -410,7 +410,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 mixed strings, NULL and cache"
         );
         for persistent in [true, true, false] {
-            let ids: Vec<i64> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+            let ids: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
                 "SELECT id FROM {binary_table} WHERE b>=? AND b<? ORDER BY id"
             )))
             .bind(Vec::<u8>::new())
@@ -419,7 +419,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .fetch_all(db.pool())
             .await?;
             assert_eq!(ids, [1, 2]);
-            let ids: Vec<i64> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+            let ids: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
                 "SELECT id FROM {binary_table} WHERE b>? ORDER BY id"
             )))
             .bind(None::<Vec<u8>>)
@@ -433,7 +433,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 NULL and cache"
         );
         for persistent in [true, true, false] {
-            let ids: Vec<i64> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+            let ids: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
                 "SELECT id FROM {binary_table} WHERE b BETWEEN ? AND ? ORDER BY id"
             )))
             .bind(Vec::<u8>::new())
@@ -442,7 +442,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .fetch_all(db.pool())
             .await?;
             assert_eq!(ids, [1, 2]);
-            let ids: Vec<i64> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+            let ids: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
                 "SELECT id FROM {binary_table} WHERE b NOT BETWEEN ? AND ? ORDER BY id"
             )))
             .bind(None::<Vec<u8>>)
@@ -456,7 +456,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "{backend:?}: application's original BETWEEN/NOT BETWEEN preserved inclusive \
                 boundaries, NULL false-range truth and cache"
         );
-        ::sqlx::raw_sql(::sqlx::AssertSqlSafe(format!("DROP TABLE {binary_table}")))
+        sqlx_doris::sqlx::raw_sql(sqlx_doris::sqlx::AssertSqlSafe(format!("DROP TABLE {binary_table}")))
             .execute(db.pool())
             .await?;
         println!(
@@ -472,14 +472,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "(id BIGINT NOT NULL PRIMARY KEY DEFAULT '42',title VARCHAR(64) NULL DEFAULT \
                 'fresh',n BIGINT NULL DEFAULT '7',opt BIGINT NULL DEFAULT NULL)"
         };
-        ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+        sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "CREATE TABLE {defaults_table}{schema}"
         )))
         .execute(db.pool())
         .await?;
         for persistent in [true, true, false] {
-            let mut tx: ::sqlx::Transaction<'_, ::sqlx::MySql> = db.pool().begin().await?;
-            ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+            let mut tx: sqlx_doris::sqlx::Transaction<'_, sqlx_doris::sqlx::MySql> = db.pool().begin().await?;
+            sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
                 "INSERT INTO {defaults_table}(title,id,n) VALUE(?,?,DEFAULT),(NULL,?,NULL)"
             )))
             .bind("app'默认😀")
@@ -488,14 +488,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .persistent(persistent)
             .execute(&mut *tx)
             .await?;
-            ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+            sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
                 "INSERT INTO {defaults_table} VALUES(DEFAULT,DEFAULT,DEFAULT,DEFAULT)"
             )))
             .execute(&mut *tx)
             .await?;
             tx.commit().await?;
             let actual: Vec<(i64, Option<String>, Option<i64>, Option<i64>)> =
-                ::sqlx::query_as(::sqlx::AssertSqlSafe(format!(
+                sqlx_doris::sqlx::query_as(sqlx_doris::sqlx::AssertSqlSafe(format!(
                     "SELECT id,title,n,opt FROM {defaults_table} ORDER BY id"
                 )))
                 .fetch_all(db.pool())
@@ -508,13 +508,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     (42, Some("fresh".to_owned()), Some(7), None),
                 ]
             );
-            let page: Vec<i64> = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+            let page: Vec<i64> = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
                 "SELECT id FROM {defaults_table} WHERE (? IS NULL OR n>=?) ORDER BY id LIMIT ? OFFSET ?"
             )))
             .bind(Some(7_i64)).bind(Some(7_i64)).bind(1_i64).bind(1_i64)
             .persistent(persistent).fetch_all(db.pool()).await?;
             assert_eq!(page, [42]);
-            let conflict = ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+            let conflict = sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
                 "INSERT INTO {defaults_table}(id,title,n) VALUES(?,?,?)"
             )))
             .bind(1_i64)
@@ -533,25 +533,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     error
                         .as_database_error()
                         .unwrap()
-                        .downcast_ref::<::sqlx::mysql::MySqlDatabaseError>()
+                        .downcast_ref::<sqlx_doris::sqlx::mysql::MySqlDatabaseError>()
                         .number(),
                     1062
                 );
             }
-            let value: i64 = ::sqlx::query_scalar(::sqlx::AssertSqlSafe(format!(
+            let value: i64 = sqlx_doris::sqlx::query_scalar(sqlx_doris::sqlx::AssertSqlSafe(format!(
                 "SELECT n FROM {defaults_table} WHERE id=?"
             )))
             .bind(1_i64)
             .fetch_one(db.pool())
             .await?;
             assert_eq!(value, if backend == Backend::Doris { 99 } else { 7 });
-            ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+            sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
                 "DELETE FROM {defaults_table}"
             )))
             .execute(db.pool())
             .await?;
         }
-        ::sqlx::query(::sqlx::AssertSqlSafe(format!(
+        sqlx_doris::sqlx::query(sqlx_doris::sqlx::AssertSqlSafe(format!(
             "DROP TABLE {defaults_table}"
         )))
         .execute(db.pool())
