@@ -86,7 +86,9 @@ for name in ("README.md", "README.en.md"):
     if (bundle / "crates/sqlx-doris" / name).read_bytes() != (
         project / "crates/sqlx-doris" / name
     ).read_bytes():
-        raise SystemExit(f"packaged {name} differs from current source; repackage first")
+        raise SystemExit(
+            f"packaged {name} differs from current source; repackage first"
+        )
 
 results = []
 cases = [
@@ -144,7 +146,7 @@ pub fn same_transaction<'a>(
         '[package]\nname = "sqlx-doris-consumer"\nversion = "0.0.0"\nedition = "2024"\n'
         "[dependencies]\nsqlx-doris = { path = "
         + json.dumps(str(dependency))
-        + ', default-features = false }\n'
+        + ", default-features = false }\n"
         'sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }\n'
         'tokio = { version = "1", features = ["macros", "rt-multi-thread"] }\n'
     )
@@ -181,7 +183,7 @@ pub fn same_transaction<'a>(
                 raise SystemExit(f"missing complete Cargo.toml in {documented_source}")
             manifest_text = re.sub(
                 r"^sqlx-doris = .*$",
-                'sqlx-doris = { path = '
+                "sqlx-doris = { path = "
                 + json.dumps(str(dependency))
                 + ", default-features = false }",
                 documented_manifest[1],
