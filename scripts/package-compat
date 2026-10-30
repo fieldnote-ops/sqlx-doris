@@ -28,12 +28,27 @@ archive = packages / "sqlx-doris-compat-0.1.0.tar.gz"
 with tempfile.TemporaryDirectory(prefix="compat-bundle-") as temporary:
     stage = Path(temporary) / "sqlx-doris-compat-0.1.0"
     stage.mkdir()
-    for name in ("sqlx-doris", "sqlx-mysql"):
-        shutil.copytree(
-            project / "crates" / name,
-            stage / "crates" / name,
-            ignore=shutil.ignore_patterns("target", ".cargo", "*.crate"),
-        )
+    sdk_source = project / "crates/sqlx-doris"
+    sdk_stage = stage / "crates/sqlx-doris"
+    for path in sdk_source.rglob("*"):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(sdk_source)
+        if relative.parts[0] not in ("src", "examples", "tests") and path.name not in (
+            "README.md",
+            "README.en.md",
+            "LICENSE",
+            "Cargo.toml",
+        ):
+            continue
+        destination = sdk_stage / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, destination)
+    shutil.copytree(
+        project / "crates/sqlx-mysql",
+        stage / "crates/sqlx-mysql",
+        ignore=shutil.ignore_patterns("target", ".cargo", "*.crate"),
+    )
     (stage / "patches").mkdir()
     for name in [
         "README.md",

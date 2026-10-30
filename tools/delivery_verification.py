@@ -172,13 +172,17 @@ def verify_bundle(project, archive, sdk_files, version):
     expected = {}
     sdk_root = project / "crates/sqlx-doris"
     for path in sdk_root.rglob("*"):
-        if path.is_file() and (
-            path.suffix in (".rs", ".py")
-            or path.name in ("README.md", "README.en.md", "LICENSE")
+        if not path.is_file():
+            continue
+        relative = path.relative_to(sdk_root)
+        if relative.parts[0] not in ("src", "examples", "tests") and path.name not in (
+            "README.md",
+            "README.en.md",
+            "LICENSE",
+            "Cargo.toml",
         ):
-            expected["crates/sqlx-doris/" + str(path.relative_to(sdk_root))] = (
-                path.read_bytes()
-            )
+            continue
+        expected["crates/sqlx-doris/" + str(relative)] = path.read_bytes()
     driver_root = project / "crates/sqlx-mysql"
     for path in driver_root.rglob("*"):
         if path.is_file():

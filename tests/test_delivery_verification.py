@@ -74,15 +74,23 @@ class DeliveryTests(unittest.TestCase):
         ]:
             (self.project / "patches" / name).write_bytes(name.encode())
         self.bundle = self.root / "bundle.tar.gz"
-        self.payload = {
-            "crates/sqlx-doris/" + str(p.relative_to(self.sdk)): p.read_bytes()
-            for p in self.sdk.rglob("*")
-            if p.is_file()
-            and (
-                p.suffix in (".rs", ".py")
-                or p.name in ("README.md", "README.en.md", "LICENSE")
-            )
-        }
+        self.payload = {}
+        for p in self.sdk.rglob("*"):
+            if not p.is_file():
+                continue
+            relative = p.relative_to(self.sdk)
+            if relative.parts[0] not in (
+                "src",
+                "examples",
+                "tests",
+            ) and p.name not in (
+                "README.md",
+                "README.en.md",
+                "LICENSE",
+                "Cargo.toml",
+            ):
+                continue
+            self.payload["crates/sqlx-doris/" + str(relative)] = p.read_bytes()
         driver = self.project / "crates/sqlx-mysql"
         for p in driver.rglob("*"):
             if p.is_file():
