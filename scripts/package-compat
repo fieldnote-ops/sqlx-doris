@@ -49,6 +49,17 @@ with tempfile.TemporaryDirectory(prefix="compat-bundle-") as temporary:
         stage / "crates/sqlx-mysql",
         ignore=shutil.ignore_patterns("target", ".cargo", "*.crate"),
     )
+    root_manifest = (project / "Cargo.toml").read_text()
+    bundle_manifest = root_manifest.replace(
+        'members = ["crates/sqlx-doris", "tests/protocol", "tests/mysql-regression"]',
+        'members = ["crates/sqlx-doris"]',
+        1,
+    ).replace(
+        'exclude = ["crates/sqlx-mysql", "tests/mysql-upstream"]',
+        'exclude = ["crates/sqlx-mysql"]',
+        1,
+    )
+    (stage / "Cargo.toml").write_text(bundle_manifest)
     (stage / "patches").mkdir()
     for name in [
         "README.md",

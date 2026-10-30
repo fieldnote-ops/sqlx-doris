@@ -198,7 +198,29 @@ def verify_bundle(project, archive, sdk_files, version):
         "safe-bindings.patch",
     ]:
         expected["patches/" + name] = (project / "patches" / name).read_bytes()
-    if set(files) != set(expected) | {"README.md", "README.en.md", "SHA256SUMS.json"}:
+    bundle_manifest = (
+        (project / "Cargo.toml")
+        .read_text()
+        .replace(
+            'members = ["crates/sqlx-doris", "tests/protocol", "tests/mysql-regression"]',
+            'members = ["crates/sqlx-doris"]',
+            1,
+        )
+        .replace(
+            'exclude = ["crates/sqlx-mysql", "tests/mysql-upstream"]',
+            'exclude = ["crates/sqlx-mysql"]',
+            1,
+        )
+        .encode()
+    )
+    if files.get("Cargo.toml") != bundle_manifest:
+        raise ValueError("bundle workspace manifest differs from the SDK root")
+    if set(files) != set(expected) | {
+        "Cargo.toml",
+        "README.md",
+        "README.en.md",
+        "SHA256SUMS.json",
+    }:
         raise ValueError(
             "bundle payload differs from the explicit SDK/SQLx source delivery set"
         )

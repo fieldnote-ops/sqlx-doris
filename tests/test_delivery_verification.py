@@ -63,6 +63,11 @@ class DeliveryTests(unittest.TestCase):
         self.make_sdk()
         (self.project / "crates/sqlx-mysql/src").mkdir(parents=True)
         (self.project / "crates/sqlx-mysql/src/lib.rs").write_bytes(b"driver")
+        (self.project / "Cargo.toml").write_text(
+            '[workspace]\nmembers = ["crates/sqlx-doris", "tests/protocol", '
+            '"tests/mysql-regression"]\n'
+            'exclude = ["crates/sqlx-mysql", "tests/mysql-upstream"]\n'
+        )
         (self.project / "patches").mkdir(parents=True)
         for name in [
             "README.md",
@@ -107,6 +112,21 @@ class DeliveryTests(unittest.TestCase):
         ).encode()
         self.payload["README.en.md"] = (
             b"Use sqlx_doris::sqlx; the SDK path dependency carries the driver."
+        )
+        self.payload["Cargo.toml"] = (
+            (self.project / "Cargo.toml")
+            .read_text()
+            .replace(
+                'members = ["crates/sqlx-doris", "tests/protocol", "tests/mysql-regression"]',
+                'members = ["crates/sqlx-doris"]',
+                1,
+            )
+            .replace(
+                'exclude = ["crates/sqlx-mysql", "tests/mysql-upstream"]',
+                'exclude = ["crates/sqlx-mysql"]',
+                1,
+            )
+            .encode()
         )
 
     def make_sdk(self):
