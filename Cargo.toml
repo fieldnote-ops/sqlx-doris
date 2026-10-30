@@ -12,6 +12,8 @@ sqlx-mysql = { path = "patches/sqlx-mysql" }
 edition = "2024"
 rust-version = "1.94"
 license = "Apache-2.0"
+repository = "https://github.com/fieldnote-ops/sqlx-doris"
+homepage = "https://github.com/fieldnote-ops/sqlx-doris"
 
 [workspace.dependencies]
 bigdecimal = { version = "0.4", features = ["serde"] }

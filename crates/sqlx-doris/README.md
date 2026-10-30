@@ -5,7 +5,7 @@
 MySQL 与 Apache Doris 的 Rust SQLx 统一访问库。业务使用原生 `MySqlPool`、`.bind()` 和结果映射，连接时选择数据库后端。
 Doris 的类型、表模型和事务规则保持原生语义。
 
-当前为 0.1.0，尚未公开发布；要求 Rust 1.94+，SQLx 固定为 0.9.0。
+当前为 0.1.0，未发布到 crates.io，源码在 [GitHub](https://github.com/fieldnote-ops/sqlx-doris)；要求 Rust 1.94+，SQLx 固定为 0.9.0。
 已测试 MySQL 8.4.13 和官方 Doris 4.1.5。
 
 ## 安装配套包

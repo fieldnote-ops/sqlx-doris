@@ -6,7 +6,8 @@ A Rust SQLx library for accessing MySQL and Apache Doris through the same API. U
 `.bind()`, and row mapping, selecting the backend when connecting.
 Doris types, table models, and transaction rules retain their native semantics.
 
-Version 0.1.0 is not publicly released. Requires Rust 1.94+ and SQLx 0.9.0.
+Version 0.1.0 is not published on crates.io; the source lives on
+[GitHub](https://github.com/fieldnote-ops/sqlx-doris). Requires Rust 1.94+ and SQLx 0.9.0.
 Tested with MySQL 8.4.13 and official Doris 4.1.5.
 
 ## Install the compatibility bundle

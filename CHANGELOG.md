@@ -9,3 +9,5 @@
 - 随附驱动修复短 PrepareOk、事务状态和 BLOB/TIME/VALUES/分页安全参数路径。
 - 提供提交/回滚/取消、缓存、错误恢复及不确定写入不重放的回归测试。
 - 提供安装消费者、原版 SQLx 对照和可核验配套包；应用根需配置一次 patch。
+- 仓库公开在 GitHub（<https://github.com/fieldnote-ops/sqlx-doris>），可按 git 依赖安装；crates.io 暂不发布，
+  原因和前提见[依赖与许可证](docs/DEPENDENCIES.md)。

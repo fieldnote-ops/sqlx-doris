@@ -3,10 +3,12 @@
 简体中文 | [English](INSTALLATION.en.md)
 
 要求 Rust 1.94+ 和 C 编译工具。业务使用 Cargo 构建，不需要 Python。
-当前 0.1.0 尚未公开发布，请使用获取到的源码或 compat 配套包。
-下面从源码接入；配套包用户可直接按[SDK README](../crates/sqlx-doris/README.md)操作。
+当前 0.1.0 尚未发布到 crates.io，可以直接用 git 依赖从 GitHub 接入，也可以使用获取到的源码或 compat 配套包。
+下面以 GitHub 的 git 依赖为主；使用本地源码或配套包时按各节说明替换路径。
 
 ## 1. 准备源码和应用目录
+
+只从 GitHub 用 git 依赖接入时，跳过本节，直接执行最后的 `mkdir -p sdk-demo/src`。
 
 已有源码目录时，将它放到应用目录旁，命名为 sqlx-doris。
 如果拿到的是交付文件，先放到一个空的工作目录，以下命令在那里执行。可任选一种方式：
@@ -41,7 +43,7 @@ work/
 
 ## 2. 配置 Cargo.toml
 
-把以下内容保存为 sdk-demo/Cargo.toml：
+把以下内容保存为 sdk-demo/Cargo.toml（从 GitHub 用 git 依赖接入）：
 
 ```toml
 [package]
@@ -50,17 +52,26 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-sqlx-doris = { path = "../sqlx-doris/crates/sqlx-doris" }
+sqlx-doris = { git = "https://github.com/fieldnote-ops/sqlx-doris" }
 sqlx = { version = "=0.9.0", default-features = false, features = ["mysql", "derive"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [patch.crates-io]
+sqlx-mysql = { git = "https://github.com/fieldnote-ops/sqlx-doris" }
+```
+
+git 依赖跟随默认分支，需要固定时补 `rev` 或 `tag`。
+用本地源码时，把这两条依赖换成 path：
+
+```toml
+sqlx-doris = { path = "../sqlx-doris/crates/sqlx-doris" }
 sqlx-mysql = { path = "../sqlx-doris/patches/sqlx-mysql" }
 ```
 
 这个独立应用中，两条 path 都相对于 sdk-demo/Cargo.toml。目录不同就调整路径，不要写成本机固定的绝对路径。
 已有 Cargo workspace 时，依赖的 path 相对于业务 crate 的 Cargo.toml；`[patch.crates-io]` 放到 workspace 根，
 其中的 path 相对于根 Cargo.toml。使用 workspace.dependencies 时，其 path 也相对于 workspace 根。
+git 依赖不受目录布局影响，但 `[patch.crates-io]` 同样只放在 workspace 根。
 已有 SQLx 依赖时统一到 `=0.9.0`。示例里的直接 SQLx 依赖供 FromRow 派生宏使用，Tokio 提供异步运行时。
 
 ## 3. 保存程序

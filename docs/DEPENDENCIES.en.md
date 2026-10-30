@@ -20,6 +20,16 @@ the current driver.
 `check-sqlx-patch` checks current files; `verify-delivery` checks reconstruction and bundle contents. See
 [testing](TESTING.en.md) for command prerequisites.
 
+## Status of crates.io publication
+
+0.1.0 ships through GitHub only. `sqlx-doris` cannot be published on its own yet: it calls
+`MySqlConnectOptions` methods added by the patched driver, and `[patch.crates-io]` can live only in an
+application or workspace root, so a crates.io crate cannot carry it.
+`cargo publish --dry-run` therefore fails its verification build with a missing
+`doris_transaction_compatibility`, and docs.rs builds would fail the same way.
+Publishing needs the driver changes merged upstream into SQLx, or an app-root patch accepted by consumers.
+Install from git dependencies for now; see [installation](INSTALLATION.en.md).
+
 ## Security notes for locked dependencies
 
 These notes refer to the source repository's Cargo.lock. Consumer applications must assess their own

@@ -14,3 +14,5 @@
   uncertain writes.
 - Provide installation tests, an upstream SQLx comparison, and a verifiable compatibility bundle; one root
   patch entry is required in the application.
+- Publish the repository on GitHub (<https://github.com/fieldnote-ops/sqlx-doris>) with git-dependency
+  installation; crates.io publication is deferred, see [dependencies](docs/DEPENDENCIES.en.md) for why.

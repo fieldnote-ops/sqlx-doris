@@ -16,6 +16,14 @@ SDK 使用 Apache-2.0。随附的 sqlx-mysql 保留上游包名、0.9.0 版本�
 patches/sqlx-mysql-provenance.json 记录来源、文件哈希和许可证，三份 patch 可重建当前驱动。
 `check-sqlx-patch` 检查当前文件，`verify-delivery` 检查补丁重建和配套包内容，命令前提见[测试说明](TESTING.md)。
 
+## 发布到 crates.io 的状态
+
+0.1.0 只通过 GitHub 分发。`sqlx-doris` 目前不能单独发布：它调用补丁驱动新增的 `MySqlConnectOptions` 方法，
+而 `[patch.crates-io]` 只能写在应用或 workspace 根，crates.io 上的 crate 带不上。
+因此 `cargo publish --dry-run` 的校验构建会因缺少 `doris_transaction_compatibility` 失败；
+要发布，需先把驱动改动合入上游 SQLx，或由应用根自行 patch（此时 docs.rs 构建也会失败）。
+当前接入方式用 git 依赖，见[安装指南](INSTALLATION.md)。
+
 ## 锁定依赖的安全说明
 
 本文对应源码仓库的 Cargo.lock；应用接入后以自己的 Cargo.lock 为准。

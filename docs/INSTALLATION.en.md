@@ -3,11 +3,15 @@
 [简体中文](INSTALLATION.md) | English
 
 Requires Rust 1.94+ and a C toolchain. Applications build with Cargo and do not need Python.
-Version 0.1.0 is not publicly released; use the supplied source or compatibility bundle.
-This guide uses the source distribution. If you have the compatibility bundle, follow the
-[SDK README](../crates/sqlx-doris/README.en.md) instead.
+Version 0.1.0 is not published on crates.io: consume it as git dependencies from GitHub, or use the
+supplied source or compatibility bundle.
+This guide starts from the GitHub git dependencies; where indicated, swap them for local paths when you
+build from source or the compatibility bundle.
 
 ## 1. Prepare the source and application directories
+
+If you consume the crate as git dependencies from GitHub, skip this section and run only the final
+`mkdir -p sdk-demo/src`.
 
 If you already have the source, place it next to your application directory and name it sqlx-doris.
 If you have the distribution files, place them in an empty working directory and choose one of these options:
@@ -42,7 +46,7 @@ work/
 
 ## 2. Configure Cargo.toml
 
-Save this as sdk-demo/Cargo.toml:
+Save this as sdk-demo/Cargo.toml (git dependencies from GitHub):
 
 ```toml
 [package]
@@ -51,11 +55,19 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-sqlx-doris = { path = "../sqlx-doris/crates/sqlx-doris" }
+sqlx-doris = { git = "https://github.com/fieldnote-ops/sqlx-doris" }
 sqlx = { version = "=0.9.0", default-features = false, features = ["mysql", "derive"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [patch.crates-io]
+sqlx-mysql = { git = "https://github.com/fieldnote-ops/sqlx-doris" }
+```
+
+Git dependencies track the default branch; add `rev` or `tag` to pin them.
+For a local source checkout, replace both entries with paths:
+
+```toml
+sqlx-doris = { path = "../sqlx-doris/crates/sqlx-doris" }
 sqlx-mysql = { path = "../sqlx-doris/patches/sqlx-mysql" }
 ```
 
@@ -64,6 +76,8 @@ layout instead of hardcoding machine-specific absolute paths.
 In a Cargo workspace, a dependency's path is relative to the application crate's Cargo.toml. Put
 `[patch.crates-io]` in the workspace root and resolve its path relative to that root Cargo.toml. Paths in
 `[workspace.dependencies]` are also relative to the workspace root.
+Git dependencies do not depend on the directory layout, but `[patch.crates-io]` still belongs in the
+workspace root.
 Align existing SQLx dependencies to `=0.9.0`. The direct SQLx dependency supports the FromRow derive macro;
 Tokio supplies the async runtime.
 
