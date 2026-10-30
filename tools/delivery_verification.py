@@ -60,7 +60,7 @@ def reconstruct(project, build_root, output):
         )
     original = archive_files(archive, f"sqlx-mysql-{version}/")
     expected = {**provenance["upstream_files"], **provenance["modified_files"]}
-    vendor = project / "patches/sqlx-mysql"
+    vendor = project / "crates/sqlx-mysql"
     for name, digest in {**expected, **provenance["license_files"]}.items():
         if sha(vendor / name) != digest:
             raise ValueError(f"vendored source/provenance mismatch: {name}")
