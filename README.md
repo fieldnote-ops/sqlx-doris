@@ -6,8 +6,9 @@
 连接时选择后端，业务继续使用原生 `MySqlPool`、`FromRow`、`QueryBuilder` 和 `.bind()`。
 表模型、事务、受影响行数和数据可见性仍按各数据库自身的规则处理。
 
-0.1.0 尚未发布到 crates.io，源码在 [GitHub](https://github.com/fieldnote-ops/sqlx-doris)。已测试 SQLx 0.9.0、MySQL 8.4.13 和官方 Doris 4.1.5；要求 Rust 1.94+。
-随附的 sqlx-mysql 驱动已并入仓库，由 SDK 的 path 依赖带入，应用不需要任何根 manifest 的补丁配置。
+0.1.0 已发布到 crates.io：`cargo add sqlx-doris`。源码在 [GitHub](https://github.com/fieldnote-ops/sqlx-doris)。
+已测试 SQLx 0.9.0、MySQL 8.4.13 和官方 Doris 4.1.5；要求 Rust 1.94+。
+随附的 sqlx-mysql 驱动以 `sqlx-doris-mysql` 发布，由 SDK 的依赖重命名引入，应用不需要任何补丁配置。
 接入步骤见[安装指南](docs/INSTALLATION.md)。
 
 ## 先跑一个查询

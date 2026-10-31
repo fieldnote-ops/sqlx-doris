@@ -22,13 +22,14 @@ the current driver.
 
 ## Status of crates.io publication
 
-0.1.0 ships through GitHub and the compatibility bundle only. The driver builds through a path dependency,
-and publishing rewrites path dependencies to registry ones, so `cargo publish --dry-run` falls back to the
-upstream stock driver and fails with a missing `doris_transaction_compatibility`.
-Publishing therefore needs the driver released as its own crate first (the `sqlx-mysql` name is taken
-upstream, so it must be renamed and referenced through a dependency rename), followed by the SDK; that
-occupies two package names and versions cannot be withdrawn.
-The current install path uses path dependencies; see [installation](INSTALLATION.en.md).
+0.1.0 is published: `sqlx-doris` 0.1.0 and the driver as `sqlx-doris-mysql` 0.9.0 (the `sqlx-mysql` name is
+taken upstream, so the fork ships under a new name and the SDK references it through a dependency rename
+while keeping the `sqlx_mysql` library name). Release the driver first, then the SDK; versions cannot be
+withdrawn, only yanked.
+The repository keeps `crates/sqlx-mysql` under its original name plus the local patch entry for this
+repository's tests and compile-time macro examples; the published artifacts come from the renamed release
+view of the same sources.
+See [installation](INSTALLATION.en.md) for the install steps.
 
 ## Security notes for locked dependencies
 

@@ -5,19 +5,26 @@
 MySQL 与 Apache Doris 的 Rust SQLx 统一访问库。业务使用原生 `MySqlPool`、`.bind()` 和结果映射，连接时选择数据库后端。
 Doris 的类型、表模型和事务规则保持原生语义。
 
-当前为 0.1.0，未发布到 crates.io，源码在 [GitHub](https://github.com/fieldnote-ops/sqlx-doris)；要求 Rust 1.94+，SQLx 固定为 0.9.0。
-已测试 MySQL 8.4.13 和官方 Doris 4.1.5。随附的 sqlx-mysql 驱动以源码形式并入本仓库，安装时不需要任何 `[patch]` 配置。
+0.1.0 已发布到 crates.io；源码在 [GitHub](https://github.com/fieldnote-ops/sqlx-doris)。要求 Rust 1.94+，SQLx 固定为 0.9.0。
+已测试 MySQL 8.4.13 和官方 Doris 4.1.5。随附的 sqlx-mysql 驱动以 `sqlx-doris-mysql` 发布，由 SDK 依赖引入，安装时不需要任何补丁配置。
 
-## 安装配套包或源码
+## 安装
 
-在一个空的工作目录中放入获取的配套包，执行：
+```toml
+[package]
+name = "sdk-demo"
+version = "0.1.0"
+edition = "2024"
 
-```sh
-tar -xzf sqlx-doris-compat-0.1.0.tar.gz
-mkdir -p sdk-demo/src
+[dependencies]
+sqlx-doris = "0.1.0"
+sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-目录布局应为：
+直接声明的 SQLx 只提供 `#[derive(sqlx::FromRow)]` 派生宏；查询、绑定和池类型从 `sqlx_doris::sqlx` 使用。
+驱动由 SDK 的依赖重命名带入，不需要 `[patch]` 段，也不要再单独声明 `sqlx-mysql`。
+使用配套包或源码目录时，把上面那一行换成 path：
 
 ```text
 work/
@@ -29,25 +36,8 @@ work/
     src/main.rs
 ```
 
-从 GitHub 使用时把 `sqlx-doris-compat-0.1.0` 换成 clone 出来的仓库目录，布局相同。
-
-把下面内容保存为 sdk-demo/Cargo.toml：
-
-```toml
-[package]
-name = "sdk-demo"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-sqlx-doris = { path = "../sqlx-doris-compat-0.1.0/crates/sqlx-doris" }
-sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-```
-
-SDK 内部用 path 依赖带入 `crates/sqlx-mysql`，所以应用不需要任何根 manifest 的补丁配置。
-直接声明 SQLx 只为了 `#[derive(sqlx::FromRow)]` 派生宏；查询函数从 `sqlx_doris::sqlx` 取用。
-已有 SQLx 项目请把版本对齐到 `=0.9.0`；Tokio 提供异步运行时。
+配套包中写成 `sqlx-doris = { path = "../sqlx-doris-compat-0.1.0/crates/sqlx-doris" }`，path 相对于 sdk-demo/Cargo.toml。
+已有 SQLx 项目也要对齐到 `=0.9.0`；Tokio 提供异步运行时。
 
 ## 运行第一个程序
 
@@ -105,7 +95,7 @@ Doris 的 SQL 连接也用 mysql:// URL；`Backend::Doris` 才会启用对应兼
 ## 后续使用
 
 默认启用 `stream-load`，HTTP 导入使用 `stream_load::StreamLoadClient`；只做 SQL 查询时可设 `default-features = false`。
-查询、参数绑定、`FromRow` 和 `QueryBuilder` 从 `sqlx_doris::sqlx` 使用，类型与池都来自本包随附的驱动。
+查询、参数绑定、`FromRow` 和 `QueryBuilder` 从 `sqlx_doris::sqlx` 使用，类型与池都来自随附驱动。
 需要 SQLx 的 `query!`、`query_as!` 编译期宏时，要改用上游 SQLx 宏并把 `sqlx-mysql` 指到本仓库的 `crates/sqlx-mysql`
 （宏会展开成 `::sqlx::` 路径），具体见 docs/USAGE.md 的编译期宏一节。
 

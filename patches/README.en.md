@@ -55,4 +55,5 @@ With a configured build volume you can check the source on its own:
 
 After building the compatibility bundle with check as described in docs/TESTING.md, verify-delivery checks
 patch reconstruction, the file set, and the SDK/driver pairing.
-The driver ships with this project; it is not published separately or merged upstream.
+The driver ships with this project and is published as `sqlx-doris-mysql` 0.9.0 on crates.io (referenced by
+`sqlx-doris`); it is not merged upstream yet.

@@ -6,21 +6,30 @@ Share Rust SQLx queries, parameter binding, and row mapping between MySQL and Ap
 Select the backend when connecting, then use native `MySqlPool`, `FromRow`, `QueryBuilder`, and `.bind()`.
 Table models, transactions, affected row counts, and data visibility follow each database's own rules.
 
-Version 0.1.0 is not published on crates.io; the source lives on
-[GitHub](https://github.com/fieldnote-ops/sqlx-doris). Requires Rust 1.94+ and SQLx 0.9.0.
-Tested with MySQL 8.4.13 and official Doris 4.1.5. The bundled sqlx-mysql driver ships as source in
-this repository, so no patching is needed at install time.
+0.1.0 is published on crates.io; the source lives on [GitHub](https://github.com/fieldnote-ops/sqlx-doris).
+Requires Rust 1.94+ and SQLx 0.9.0. Tested with MySQL 8.4.13 and official Doris 4.1.5.
+The bundled sqlx-mysql driver is published as `sqlx-doris-mysql` and arrives through the SDK dependency,
+so no patching is needed at install time.
 
-## Install the compatibility bundle or the source
+## Install
 
-Place the supplied bundle in an empty working directory and run:
+```toml
+[package]
+name = "sdk-demo"
+version = "0.1.0"
+edition = "2024"
 
-```sh
-tar -xzf sqlx-doris-compat-0.1.0.tar.gz
-mkdir -p sdk-demo/src
+[dependencies]
+sqlx-doris = "0.1.0"
+sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-The resulting layout is:
+The direct SQLx dependency only supplies the `#[derive(sqlx::FromRow)]` macro; take queries, binding, and
+pool types from `sqlx_doris::sqlx`.
+The driver arrives through a dependency rename in the SDK, so no `[patch]` section and no separate
+`sqlx-mysql` entry are needed.
+With the compatibility bundle or a source checkout, replace that line with a path:
 
 ```text
 work/
@@ -32,27 +41,9 @@ work/
     src/main.rs
 ```
 
-With GitHub, use the cloned repository directory instead of `sqlx-doris-compat-0.1.0`; the layout is
-the same.
-
-Save this as sdk-demo/Cargo.toml:
-
-```toml
-[package]
-name = "sdk-demo"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-sqlx-doris = { path = "../sqlx-doris-compat-0.1.0/crates/sqlx-doris" }
-sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-```
-
-The SDK pulls `crates/sqlx-mysql` through its own path dependency, so the application needs no root
-manifest patch entry. The direct SQLx dependency only supplies the `#[derive(sqlx::FromRow)]` macro;
-query functions come from `sqlx_doris::sqlx`. Align existing SQLx projects to `=0.9.0`; Tokio
-supplies the async runtime.
+In the bundle that reads `sqlx-doris = { path = "../sqlx-doris-compat-0.1.0/crates/sqlx-doris" }`, with the
+path relative to sdk-demo/Cargo.toml.
+Align existing SQLx projects to `=0.9.0`; Tokio supplies the async runtime.
 
 ## Run your first program
 

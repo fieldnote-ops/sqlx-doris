@@ -6,11 +6,11 @@ Share Rust SQLx queries, parameter binding, and row mapping between MySQL and Ap
 Select the backend when connecting, then use native `MySqlPool`, `FromRow`, `QueryBuilder`, and `.bind()`.
 Table models, transactions, affected row counts, and data visibility follow each database's own rules.
 
-Version 0.1.0 is not published on crates.io; the source lives on
+Version 0.1.0 is published on crates.io (`cargo add sqlx-doris`); the source lives on
 [GitHub](https://github.com/fieldnote-ops/sqlx-doris). Tested with SQLx 0.9.0, MySQL 8.4.13, and official
 Doris 4.1.5; requires Rust 1.94+.
-The bundled sqlx-mysql driver lives in this repository and arrives through the SDK's path dependency, so
-applications need no root-manifest patch entry.
+The bundled sqlx-mysql driver is published as `sqlx-doris-mysql` and arrives through a dependency rename in
+the SDK, so applications need no patch entry.
 See the [installation guide](docs/INSTALLATION.en.md) for the complete setup.
 
 ## Run your first query

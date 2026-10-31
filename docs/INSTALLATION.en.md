@@ -3,12 +3,13 @@
 [简体中文](INSTALLATION.md) | English
 
 Requires Rust 1.94+ and a C toolchain. Applications build with Cargo and do not need Python.
-Version 0.1.0 is not published on crates.io; use the compatibility bundle or the GitHub source. The
-bundled driver ships inside this repository, so applications need no root-manifest patch entry.
+Version 0.1.0 is published on crates.io; the compatibility bundle and the GitHub source also work. The bundled
+driver is published as `sqlx-doris-mysql`, so applications need no root-manifest patch entry.
 
 ## 1. Prepare the source and application directories
 
-With the compatibility bundle, extract it into an empty working directory:
+With crates.io you can skip this section and only create the application directory. For the compatibility
+bundle or the source checkout, extract or clone first:
 
 ```sh
 tar -xzf sqlx-doris-compat-0.1.0.tar.gz
@@ -49,14 +50,19 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-sqlx-doris = { path = "../sqlx-doris-compat-0.1.0/crates/sqlx-doris" }
+sqlx-doris = "0.1.0"
 sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-The path is relative to sdk-demo/Cargo.toml; adjust it to your layout instead of hardcoding a
-machine-specific absolute path. The SDK resolves `crates/sqlx-mysql` through its own path dependency,
-so the application needs no patch section; declaring the driver again would introduce a second type.
+From crates.io nothing else is required: the SDK carries the driver, and you must not declare `sqlx-mysql`
+separately.
+For the compatibility bundle or a source checkout, replace `sqlx-doris` with a path such as
+`{ path = "../sqlx-doris-compat-0.1.0/crates/sqlx-doris" }` or
+`{ path = "../sqlx-doris/crates/sqlx-doris" }`; the path is relative to sdk-demo/Cargo.toml, so adjust it
+instead of hardcoding a machine-specific absolute path.
+The SDK resolves `crates/sqlx-mysql` through its own path dependency, and the application still needs no
+patch section.
 In a Cargo workspace, a dependency's path is relative to the manifest that declares it, and
 `[workspace.dependencies]` paths are relative to the workspace root.
 The direct SQLx dependency only supplies the `#[derive(sqlx::FromRow)]` macro; take query functions and

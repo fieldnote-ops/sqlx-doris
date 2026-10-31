@@ -88,7 +88,7 @@ sqlx-doris = { path = "crates/sqlx-doris" }
 完整步骤见 [SDK 安装指南](crates/sqlx-doris/README.md)。
 
 [驱动说明](patches/README.md)记录兼容处理、来源和许可证。
-完整使用、兼容范围和测试说明见源码包的 docs 目录。本版本尚未公开发布。
+完整使用、兼容范围和测试说明见源码包的 docs 目录。对应版本已发布到 crates.io（`sqlx-doris` 0.1.0）。
 """
     )
     (stage / "README.en.md").write_text(
@@ -112,7 +112,7 @@ See the [SDK installation guide](crates/sqlx-doris/README.en.md) for the full st
 
 The [driver guide](patches/README.en.md) describes compatibility, provenance, and licenses.
 Full usage, compatibility, and testing guides are in the source archive's docs directory.
-This version is not publicly released.
+This version is published on crates.io (`sqlx-doris` 0.1.0).
 """
     )
     files = {

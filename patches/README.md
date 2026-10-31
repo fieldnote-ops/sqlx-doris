@@ -44,4 +44,4 @@ sqlx-mysql-provenance.json 记录 73 个上游文件、15 个修改文件和许�
 ```
 
 从源码根按 docs/TESTING.md 运行 check 生成配套包后，再用 verify-delivery 核对补丁重建、文件清单和 SDK/驱动配对。
-这份驱动随项目提供，尚未另行发布或合并到上游。
+这份驱动随项目提供，并已作为 `sqlx-doris-mysql` 0.9.0 发布到 crates.io（由 `sqlx-doris` 依赖引用）；尚未合并到上游 SQLx。

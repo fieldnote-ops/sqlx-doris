@@ -2,7 +2,7 @@
 
 [简体中文](CHANGELOG.md) | English
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-10-31)
 
 - Share MySQL/Doris connection APIs and native SQLx types, reusing query functions and safe `.bind()` calls
   within the supported SQL subset.
@@ -16,5 +16,7 @@
   dependency and exposes `sqlx_doris::sqlx`, so applications need no root-manifest patch entry.
 - Provide installation tests, an upstream SQLx comparison, and a verifiable compatibility bundle; the bundle
   ships the SDK and driver as source.
-- Publish the repository on GitHub (<https://github.com/fieldnote-ops/sqlx-doris>) with git-dependency
-  installation; crates.io publication is deferred, see [dependencies](docs/DEPENDENCIES.en.md) for why.
+- Published to crates.io: `sqlx-doris` 0.1.0 and the driver as `sqlx-doris-mysql` 0.9.0; install with
+  `cargo add sqlx-doris`, no patch required.
+- Publish the repository on GitHub (<https://github.com/fieldnote-ops/sqlx-doris>); source and compatibility
+  bundle share the same SDK/driver layout.

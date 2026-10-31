@@ -18,11 +18,11 @@ patches/sqlx-mysql-provenance.json 记录来源、文件哈希和许可证，三
 
 ## 发布到 crates.io 的状态
 
-0.1.0 只通过 GitHub 和配套包分发。驱动以 path 依赖随 SDK 构建，而发布时 Cargo 会把 path 依赖改写成 registry 依赖，
-因此 `cargo publish --dry-run` 的校验构建会退回上游 stock 驱动并因缺少 `doris_transaction_compatibility` 失败。
-要发布，需要先把驱动作为独立 crate 发布（`sqlx-mysql` 名称已被上游占用，需改名并让 SDK 用依赖重命名引用），
-再按顺序发布 SDK；这会占用两个包名且版本不可撤回。
-当前接入方式用 path 依赖，见[安装指南](INSTALLATION.md)。
+0.1.0 已发布：`sqlx-doris` 0.1.0 与驱动 `sqlx-doris-mysql` 0.9.0（`sqlx-mysql` 名称被上游占用，故改名发布，
+SDK 通过依赖重命名引用，库名仍是 `sqlx_mysql`）。发布顺序为先驱动、后 SDK；版本不可撤回，只能 yank。
+仓库内保留 `crates/sqlx-mysql` 原名和本地补丁配置，供本仓库测试与编译期宏示例使用；
+发布产物来自改名的发布视图，两者源码一致。
+安装方式见[安装指南](INSTALLATION.md)。
 
 ## 锁定依赖的安全说明
 

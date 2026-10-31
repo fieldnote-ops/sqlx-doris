@@ -3,11 +3,11 @@
 简体中文 | [English](INSTALLATION.en.md)
 
 要求 Rust 1.94+ 和 C 编译工具。业务使用 Cargo 构建，不需要 Python。
-0.1.0 未发布到 crates.io；可以用配套包或 GitHub 源码接入，随附驱动已并入仓库，应用不需要任何根 manifest 的补丁配置。
+0.1.0 已发布到 crates.io；也可以使用配套包或 GitHub 源码接入。随附驱动已发布为 `sqlx-doris-mysql`，应用不需要根 manifest 的补丁配置。
 
 ## 1. 准备源码和应用目录
 
-拿到配套包时先解压到空的工作目录：
+从 crates.io 安装时可以跳过本节，只创建应用目录。需要使用配套包或源码时，先解压/克隆：
 
 ```sh
 tar -xzf sqlx-doris-compat-0.1.0.tar.gz
@@ -48,13 +48,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-sqlx-doris = { path = "../sqlx-doris-compat-0.1.0/crates/sqlx-doris" }
+sqlx-doris = "0.1.0"
 sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-这条 path 相对于 sdk-demo/Cargo.toml，目录不同就调整，不要写成本机固定的绝对路径。
-SDK 通过自身的 path 依赖解析 `crates/sqlx-mysql`，所以应用不需要补丁段；重复声明驱动反而会引入第二份类型。
+从 crates.io 安装时不需要其他依赖，驱动由 SDK 带入；也不要再单独声明 `sqlx-mysql`。
+使用配套包或源码时，把 `sqlx-doris` 换成 path，例如 `{ path = "../sqlx-doris-compat-0.1.0/crates/sqlx-doris" }`
+或 `{ path = "../sqlx-doris/crates/sqlx-doris" }`；path 相对于 sdk-demo/Cargo.toml，目录不同就调整，不要写成本机固定的绝对路径。
+SDK 通过自身的 path 依赖解析 `crates/sqlx-mysql`，应用同样不需要补丁段。
 已有 Cargo workspace 时，依赖的 path 相对于声明它的 Cargo.toml；使用 workspace.dependencies 时相对于 workspace 根。
 直接声明的 SQLx 只提供 `#[derive(sqlx::FromRow)]` 派生宏，查询函数和池类型从 `sqlx_doris::sqlx` 使用。
 已有 SQLx 依赖时统一到 `=0.9.0`；Tokio 提供异步运行时。
