@@ -223,10 +223,13 @@ def validate(root: Path) -> dict:
                 ("mysql", "postgres", "sqlite")
             ):
                 raise DocumentationError(f"Other database features in example: {path}")
-            if (
-                set(dependencies["sqlx-doris"].get("features", []))
-                - facade["features"].keys()
-            ):
+            doris = dependencies["sqlx-doris"]
+            if isinstance(doris, str):
+                if doris != facade["package"]["version"]:
+                    raise DocumentationError(
+                        f"Doris example version differs from the package: {path}"
+                    )
+            elif set(doris.get("features", [])) - facade["features"].keys():
                 raise DocumentationError(f"Unknown Doris feature in example: {path}")
     quick = (root / "crates/sqlx-doris/examples/query.rs").read_text().strip()
     for name in (

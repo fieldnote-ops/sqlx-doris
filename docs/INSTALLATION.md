@@ -6,13 +6,13 @@
 
 [Documentation](README.md)
 
-Version **0.2.0 is unreleased**. Use a complete source checkout. Rust 1.94+ and a C toolchain for TLS dependencies are required. Python 3.12+ is needed only for repository tools, not your running application.
+Version **0.2.0 is published on crates.io**. Rust 1.94+ and a C toolchain for TLS dependencies are required. Python 3.12+ is needed only for repository tools, not your running application.
 
 <a name="doc-contents"></a>
 
 ## Contents
 
-- [Add a source dependency](#doc-source)
+- [Add the dependency](#doc-source)
 - [Choose features](#doc-features)
 - [Use upstream SQLx](#doc-upstream)
 - [Configure external build storage](#doc-storage)
@@ -21,14 +21,14 @@ Version **0.2.0 is unreleased**. Use a complete source checkout. Rust 1.94+ and 
 
 <a name="doc-source"></a>
 
-## Add a source dependency
+## Add the dependency
 
-In your application Cargo.toml, set `path` relative to that manifest, pointing into the complete checkout. The following is the minimal runtime setup with row derives. Do not install 0.2.0 from a public registry before it is released.
+Add `sqlx-doris` to your application Cargo.toml; the following is the minimal runtime setup with row derives. Internal packages are not declared. Repository development may instead use a `path` dependency into the checkout.
 
 ```toml
 [dependencies]
 sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }
-sqlx-doris = { path = "../sqlx-doris-clean/crates/sqlx-doris" }
+sqlx-doris = "0.2.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -117,13 +117,13 @@ Use `doris://user:password@fe:9030/database` and URL-encode reserved characters.
 
 ## Install the companion CLI
 
-Run from the complete repository root, not from a standalone .crate archive. Install into the external prefix and add its bin directory to your shell PATH.
+Install the published crate into the external prefix and add its bin directory to your shell PATH.
 
 Choose one installation profile: cli provides prepare/database/ordinary migrate; cli-admin adds Doris maintenance under admin; cli-admin-kafka additionally enables independent read-only Kafka preflight. All profiles install the same executable. Use cargo install --force explicitly when replacing an installed profile. The example installs the basic profile; replace the --features value as needed.
 
 ```sh
 export SQLX_DORIS_EXTERNAL_VOLUME="<absolute-external-mount>"
-./scripts/dev cargo install --path crates/sqlx-doris --features cli --locked \
+cargo install sqlx-doris --version 0.2.0 --features cli --locked \
   --root "$SQLX_DORIS_EXTERNAL_VOLUME/sqlx-doris/tools"
 export PATH="$SQLX_DORIS_EXTERNAL_VOLUME/sqlx-doris/tools/bin:$PATH"
 cargo sqlx-doris --help

@@ -35,6 +35,6 @@
 
 sqlx-core/offline 有意保留：SQLx 0.9 的 Executor::describe 和 ColumnOrigin 序列化受该特性控制。这保证应用独立启用上游宏时 Executor 实现仍然完整。Doris 自身的描述序列化与 bitflags/serde 仅随 macro-support 开启；未启用 query 的宏包没有 normal/build 依赖。ops 的助手错误类型仅随 helpers 开启，维护与 Kafka 观察状态不进入 helpers-only 构建。默认运行时不强制开启 tokio-macros 或多线程执行器；由 CLI、测试或应用选择。
 
-`scripts/test-package` 使用 Cargo workspace packaging 验证五包，每次生成外置临时 registry URL 和 target/build 目录，避免未发布同版本包命中旧缓存。`.crate` 保存在外置 artifacts 目录；不要求用户修改上游或配置 patch。使用镜像时，先在外置工作目录执行 `cargo fetch --manifest-path <仓库>/Cargo.toml` 准备官方 registry 缓存。
+`scripts/test-package` 使用 Cargo workspace packaging 验证五包，每次生成外置临时 registry URL 和 target/build 目录，避免同版本包命中旧缓存。`.crate` 保存在外置 artifacts 目录；不要求用户修改上游或配置 patch。使用镜像时，先在外置工作目录执行 `cargo fetch --manifest-path <仓库>/Cargo.toml` 准备官方 registry 缓存。
 
-Cargo.lock 记录受测依赖。各依赖保留自身许可证，可通过 cargo metadata 查看。`scripts/test-install` 从受验收的原样源码归档安装 CLI，再验证全新 SQLx 应用、prepare 和强制离线构建；未发布包使用的测试 registry 路由只存在于外置验收目录。
+Cargo.lock 记录受测依赖。各依赖保留自身许可证，可通过 cargo metadata 查看。`scripts/test-install` 从受验收的原样源码归档安装 CLI，再验证全新 SQLx 应用、prepare 和强制离线构建；内部包使用的测试 registry 路由只存在于外置验收目录。

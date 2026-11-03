@@ -2,12 +2,12 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Native Apache Doris driver for SQLx. **0.2.0 is unreleased**; requires Rust 1.94+, a C toolchain, SQLx 0.9.0 and the verified Doris 4.1.5 baseline. Use a complete source checkout; the path below is relative to the application manifest.
+Native Apache Doris driver for SQLx. Requires Rust 1.94+, a C toolchain, SQLx 0.9.0 and the verified Doris 4.1.5 baseline.
 
 ```toml
 [dependencies]
 sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }
-sqlx-doris = { path = "../sqlx-doris-clean/crates/sqlx-doris" }
+sqlx-doris = "0.2.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 

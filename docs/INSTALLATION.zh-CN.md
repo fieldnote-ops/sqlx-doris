@@ -6,13 +6,13 @@
 
 [文档首页](README.zh-CN.md)
 
-**0.2.0 尚未发布**，请使用完整源码检出目录。需要 Rust 1.94+ 及构建 TLS 依赖的 C 工具链；Python 3.12+ 仅供仓库工具使用，业务程序不需要 Python。
+**0.2.0 已发布到 crates.io**。需要 Rust 1.94+ 及构建 TLS 依赖的 C 工具链；Python 3.12+ 仅供仓库工具使用，业务程序不需要 Python。
 
 <a name="doc-contents"></a>
 
 ## 目录
 
-- [接入源码依赖](#doc-source)
+- [添加依赖](#doc-source)
 - [选择特性](#doc-features)
 - [使用官方 SQLx](#doc-upstream)
 - [配置外置构建目录](#doc-storage)
@@ -21,14 +21,14 @@
 
 <a name="doc-source"></a>
 
-## 接入源码依赖
+## 添加依赖
 
-在应用的 Cargo.toml 中配置依赖；`path` 相对于该文件，指向完整检出目录。以下为包含行映射派生的最小运行时配置。0.2.0 发布前不要使用公共注册表安装命令。
+在应用 Cargo.toml 中添加 `sqlx-doris`；以下为包含行映射派生的最小运行时配置，内部包无需声明。仓库内开发可改用指向检出目录的 `path` 依赖。
 
 ```toml
 [dependencies]
 sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }
-sqlx-doris = { path = "../sqlx-doris-clean/crates/sqlx-doris" }
+sqlx-doris = "0.2.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -111,13 +111,13 @@ pub async fn connect() -> sqlx::Result<sqlx_doris::DorisPool> {
 
 ## 安装配套 CLI
 
-从完整仓库根目录执行，不能只使用单个 .crate 归档。安装到外置前缀，并将其 bin 目录加入终端 PATH。
+将已发布的 crate 安装到外置前缀，并将其 bin 目录加入终端 PATH。
 
 选择一个安装配置：cli 只有 prepare/database/普通 migrate；cli-admin 增加 admin 下的 Doris 维护；cli-admin-kafka 再增加独立 Kafka 只读预检。三档使用同一个可执行文件；更换已安装配置时显式使用 cargo install --force。下例安装基础配置，按需要替换 --features 的值。
 
 ```sh
 export SQLX_DORIS_EXTERNAL_VOLUME="<absolute-external-mount>"
-./scripts/dev cargo install --path crates/sqlx-doris --features cli --locked \
+cargo install sqlx-doris --version 0.2.0 --features cli --locked \
   --root "$SQLX_DORIS_EXTERNAL_VOLUME/sqlx-doris/tools"
 export PATH="$SQLX_DORIS_EXTERNAL_VOLUME/sqlx-doris/tools/bin:$PATH"
 cargo sqlx-doris --help

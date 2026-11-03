@@ -27,9 +27,10 @@
   structural parity cannot prove translation accuracy.
 - Root README is the checkout quickstart; docs/README indexes task-specific guides.
   Keep package READMEs concise and self-contained inside each archive, with both
-  languages included and no relative links escaping its package. Keep source-only
-  installation explicit while unreleased. Compile copyable Rust examples and
-  validate documentation pairs/anchors through scripts/check-docs and test-docs.
+  languages included and no relative links escaping its package. Keep installation
+  explicit about the published registry version and the source checkout used for
+  development. Compile copyable Rust examples and validate documentation
+  pairs/anchors through scripts/check-docs and test-docs.
 - Maintain the paired architecture/task atlas as user documentation. Distinguish
   build-time metadata, runtime SQL, HTTP payloads, tool control and package
   dependencies with labelled directions and separate legends. A dependency graph

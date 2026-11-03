@@ -4,7 +4,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Choose your task below. The default installation is a source dependency because 0.2.0 is not published.
+Choose your task below. Installation uses the published `sqlx-doris` 0.2.0 crate; a source checkout is needed only for development.
 
 <a name="doc-contents"></a>
 

@@ -26,7 +26,7 @@ For embedded files, update the dependency entries in your application as follows
 ```toml
 [dependencies]
 sqlx = { version = "=0.9.0", default-features = false, features = ["macros", "migrate"] }
-sqlx-doris = { path = "../sqlx-doris-clean/crates/sqlx-doris", features = ["migrate"] }
+sqlx-doris = { version = "0.2.0", features = ["migrate"] }
 ```
 
 Add this function to your application; the migrations directory is relative to its Cargo manifest:

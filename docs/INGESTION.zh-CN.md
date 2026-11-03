@@ -37,7 +37,7 @@ Duplicate、Unique、Aggregate 表有不同写入语义。Unique 整行 UPSERT �
 ```toml
 [dependencies]
 sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }
-sqlx-doris = { path = "../sqlx-doris-clean/crates/sqlx-doris", features = ["stream-load"] }
+sqlx-doris = { version = "0.2.0", features = ["stream-load"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```

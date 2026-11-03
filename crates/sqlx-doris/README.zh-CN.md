@@ -2,12 +2,12 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-原生 Apache Doris SQLx 驱动。**0.2.0 尚未发布**，需要 Rust 1.94+、C 工具链、SQLx 0.9.0；已验证 Doris 4.1.5。使用完整源码检出目录，下方 path 相对于应用 manifest。
+原生 Apache Doris SQLx 驱动。需要 Rust 1.94+、C 工具链、SQLx 0.9.0；已验证 Doris 4.1.5。
 
 ```toml
 [dependencies]
 sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }
-sqlx-doris = { path = "../sqlx-doris-clean/crates/sqlx-doris" }
+sqlx-doris = "0.2.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 

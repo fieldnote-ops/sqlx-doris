@@ -40,7 +40,7 @@ Before pulling or starting local Doris, inspect Docker/Lima disk locations, Dock
 
 ## Checks without a database
 
-scripts/check validates user documentation, formatting, Clippy, unit/protocol/HTTP models, storage rules, empty default features, workspace API documentation, all five packages with all features, eleven isolated consumers and six independent ops feature combinations. Workspace packaging uses a temporary registry for aligned unpublished internal packages. See [Dependencies](DEPENDENCIES.md) for official registry cache preparation in mirror environments.
+scripts/check validates user documentation, formatting, Clippy, unit/protocol/HTTP models, storage rules, empty default features, workspace API documentation, all five packages with all features, eleven isolated consumers and six independent ops feature combinations. Workspace packaging uses a temporary registry for the aligned internal packages. See [Dependencies](DEPENDENCIES.md) for official registry cache preparation in mirror environments.
 
 Ignored live tests in ordinary cargo test mean unexecuted tests.
 
@@ -190,7 +190,7 @@ Four randomized contracts directly exercise protocol lengths, row decoding and b
 ./scripts/dev ./scripts/test-install --reuse-packages
 ```
 
-Separate basic/admin/admin-kafka CLI installations and a fresh application verify generic SQLx, query!, migrate!, existing-table Stream Load, project Cargo configuration, prepare/--check, forced offline rebuild and Doris-only diagnosis without Kafka. Installation acceptance requires the SQL and trusted FE/BE HTTP endpoints above. Temporary external Cargo routing resolves unpublished internal dependencies to five unchanged extracted archives; it modifies neither archives nor upstream SQLx and does not test public-registry publication/download. Failures preserve isolated databases/evidence without automatic recovery or replay; success removes only owned temporary databases.
+Separate basic/admin/admin-kafka CLI installations and a fresh application verify generic SQLx, query!, migrate!, existing-table Stream Load, project Cargo configuration, prepare/--check, forced offline rebuild and Doris-only diagnosis without Kafka. Installation acceptance requires the SQL and trusted FE/BE HTTP endpoints above. Temporary external Cargo routing resolves the five internal dependencies to unchanged extracted archives; it modifies neither archives nor upstream SQLx and does not test public-registry publication/download. Failures preserve isolated databases/evidence without automatic recovery or replay; success removes only owned temporary databases.
 
 check.log, live-full.log, live-full-summary.json, native-macro-summary.json, native-cli-summary.json, msrv.log and installation logs remain in external SQLX_DORIS_ARTIFACTS_DIR. Summaries count executed contracts only. Official 4.1.5 is the verified baseline; later releases require semantic revalidation, with no older-version support work. See [Performance](PERFORMANCE.md) for sustained workloads and measurement limits.
 

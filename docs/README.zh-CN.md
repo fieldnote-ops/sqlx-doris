@@ -4,7 +4,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-按任务选择指南。0.2.0 尚未发布，默认接入方式为源码路径。
+按任务选择指南。安装使用已发布的 `sqlx-doris` 0.2.0 crate；仅在参与开发时才需要源码检出目录。
 
 <a name="doc-contents"></a>
 

@@ -190,7 +190,7 @@ DORIS_RANDOM_SEED=9417 DORIS_RANDOM_CASES=16384 ./scripts/dev cargo test --locke
 ./scripts/dev ./scripts/test-install --reuse-packages
 ```
 
-分别实装 basic/admin/admin-kafka 三种 CLI，再用全新应用验证通用 SQLx、query!、migrate!、已有表 Stream Load、项目 Cargo 配置、prepare/--check、强制离线重建以及不含 Kafka 的 Doris 诊断。安装验收需要上文 SQL 与可信 FE/BE HTTP 端点。未发布的内部依赖通过外置临时 Cargo 配置路由到原样解包的五个源码包，不修改源码包或上游 SQLx；此验收不代表公开注册表发布/下载。失败保留隔离库和现场，不自动恢复或重放；成功仅删除自己的临时库。
+分别实装 basic/admin/admin-kafka 三种 CLI，再用全新应用验证通用 SQLx、query!、migrate!、已有表 Stream Load、项目 Cargo 配置、prepare/--check、强制离线重建以及不含 Kafka 的 Doris 诊断。安装验收需要上文 SQL 与可信 FE/BE HTTP 端点。五个内部依赖通过外置临时 Cargo 配置路由到原样解包的源码包，不修改源码包或上游 SQLx；此验收不代表公开注册表发布/下载。失败保留隔离库和现场，不自动恢复或重放；成功仅删除自己的临时库。
 
 check.log、live-full.log、live-full-summary.json、native-macro-summary.json、native-cli-summary.json、msrv.log 和安装日志均在外置 SQLX_DORIS_ARTIFACTS_DIR。每份汇总只统计实际执行的契约。当前基线只验证官方 4.1.5，后续版本须重新验证元数据与事务语义，不投入低版本适配。持续负载与性能范围见[性能说明](PERFORMANCE.zh-CN.md)。
 

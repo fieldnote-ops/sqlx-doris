@@ -26,7 +26,7 @@
 ```toml
 [dependencies]
 sqlx = { version = "=0.9.0", default-features = false, features = ["macros", "migrate"] }
-sqlx-doris = { path = "../sqlx-doris-clean/crates/sqlx-doris", features = ["migrate"] }
+sqlx-doris = { version = "0.2.0", features = ["migrate"] }
 ```
 
 将下列函数加入应用；migrations 目录相对于应用 Cargo manifest：

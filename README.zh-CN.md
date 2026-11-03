@@ -6,7 +6,7 @@
 
 遵循 SQLx 使用习惯的原生 Apache Doris 驱动，提供精确类型、流式查询和可选的 Stream Load 批量导入。通用查询、连接池、FromRow 和迁移使用官方 `sqlx`；Doris 能力统一来自 `sqlx-doris`，应用无需声明内部包。编译期查询与迁移工具按需开启，高级异常恢复单独选用。
 
-**0.2.0 尚未发布**。需要 Rust 1.94+ 和 C 工具链，验证基线为 Doris 4.1.5 与 SQLx 0.9.0。仅提供 Doris，不需要 sqlx-mysql 包或驱动补丁。
+**0.2.0 已发布到 crates.io**。需要 Rust 1.94+ 和 C 工具链，验证基线为 Doris 4.1.5 与 SQLx 0.9.0。仅提供 Doris，不需要 sqlx-mysql 包或驱动补丁。
 
 <a name="doc-contents"></a>
 
@@ -22,12 +22,12 @@
 
 ## 运行第一条查询
 
-将完整源码检出目录放在应用旁，按实际位置修改下方依赖路径，并配置[外置构建目录](docs/INSTALLATION.zh-CN.md#doc-storage)。目标库与账号需预先存在；此运行时示例不需要编译时 DATABASE_URL。
+按下方的依赖配置接入，并配置[外置构建目录](docs/INSTALLATION.zh-CN.md#doc-storage)。目标库与账号需预先存在；此运行时示例不需要编译时 DATABASE_URL。
 
 ```toml
 [dependencies]
 sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }
-sqlx-doris = { path = "../sqlx-doris-clean/crates/sqlx-doris" }
+sqlx-doris = "0.2.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 从[使用地图](docs/ARCHITECTURE.zh-CN.md#doc-tasks)选路，查看[控制与执行路径](docs/ARCHITECTURE.zh-CN.md#doc-flows)，或理解[五包架构](docs/ARCHITECTURE.zh-CN.md#doc-packages)。静态图与文字说明另有本地交互地图配套。
 
-- [安装](docs/INSTALLATION.zh-CN.md)：源码依赖、特性、外置路径与 TLS。
+- [安装](docs/INSTALLATION.zh-CN.md)：crates.io 依赖、特性、外置路径与 TLS。
 - [日常查询与类型](docs/USAGE.zh-CN.md)、[批量导入](docs/INGESTION.zh-CN.md)和[问题排查](docs/TROUBLESHOOTING.zh-CN.md)。
 - [编译期查询与离线构建](docs/USAGE.zh-CN.md#doc-macros)、[SQLx 迁移](docs/MIGRATIONS.zh-CN.md)和 [CLI](docs/CLI.zh-CN.md)。
 - 高级维护：[异常恢复](docs/RECOVERY.zh-CN.md)、[受管 Routine Load](docs/ROUTINE_LOAD.zh-CN.md)、[Kafka 接续预检](docs/KAFKA.zh-CN.md)。

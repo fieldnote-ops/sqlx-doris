@@ -8,11 +8,11 @@
 
 ## 目录
 
-- [0.2.0（未发布）](#doc-v0-2-0)
+- [0.2.0（2026-11-03）](#doc-v0-2-0)
 
 <a name="doc-v0-2-0"></a>
 
-## 0.2.0（未发布）
+## 0.2.0（2026-11-03）
 
 - 独立 SQLx Doris 驱动，仅有 Doris 类型身份和 doris:// URL；移除内置 sqlx-mysql、双后端、兼容补丁和 Client 查询包装。
 - 五包分工：sqlx-doris 公开入口，core 驱动与迁移 traits，macros 编译期检查，ops 操作与运维原语，CLI 交互与 prepare。应用无需分别声明内部包。
@@ -32,3 +32,4 @@
 - 共享迁移历史、私密文件和操作状态实现，取消全局命令状态。手工整理宏体、异步控制流、缩进与生成模板；格式检查覆盖 Rust、独立 fixture 和 Python。
 - 测试包含真实 Kafka 多分区、分区变化、offset 过期/截断、STOP/提交竞态与数据重复/缺失核对；加入可复现随机化、持续负载、五包安装与全新应用验收。
 - 构建、缓存、Doris/Kafka 数据和中间产物全部外置。当前服务器验证基线为 Doris 4.1.5，不适配低版本。
+- 在 crates.io 发布 `sqlx-doris` 0.2.0 与内部包 `sqlx-doris-core`、`sqlx-doris-macros`、`sqlx-doris-ops`、`sqlx-doris-cli`；使用 `cargo add sqlx-doris@0.2.0` 安装，无需 patch 段、单独的内部包或 0.1.0 的 `sqlx-doris-mysql` 依赖。

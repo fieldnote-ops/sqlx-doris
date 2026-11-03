@@ -8,11 +8,11 @@
 
 ## Contents
 
-- [0.2.0 (unreleased)](#doc-v0-2-0)
+- [0.2.0 (2026-11-03)](#doc-v0-2-0)
 
 <a name="doc-v0-2-0"></a>
 
-## 0.2.0 (unreleased)
+## 0.2.0 (2026-11-03)
 
 - Standalone SQLx Doris identity and doris:// URLs. Remove bundled sqlx-mysql, dual backends, compatibility patches and the Client query wrapper.
 - Five aligned packages: public sqlx-doris, core driver/migration traits, compile-time macros, ops workflows and CLI interaction/prepare. Applications declare no separate internal packages.
@@ -32,3 +32,4 @@
 - Shared history, private file and per-call observation implementations; remove global command state. Improve macro bodies, control flow, indentation and templates. Formatting gates include Rust, standalone fixtures and Python.
 - Real Kafka partition/change/expiry/truncation and STOP/commit data contracts, reproducible randomized tests, sustained workloads, five-package installation and fresh application acceptance.
 - All builds, caches, Doris/Kafka data and intermediate artifacts stay external. Current verified baseline: Doris 4.1.5; no older-version support.
+- Publish `sqlx-doris` 0.2.0 with `sqlx-doris-core`, `sqlx-doris-macros`, `sqlx-doris-ops` and `sqlx-doris-cli` on crates.io. Install with `cargo add sqlx-doris@0.2.0`; no patch section, separate internal package or 0.1.0 `sqlx-doris-mysql` dependency is declared.

@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-内部实现包，版本 0.2.0（未发布）。应用使用公开 sqlx-doris 包与官方 sqlx，无需单独声明此包。
+内部实现包，版本 0.2.0。应用使用公开 sqlx-doris 包与官方 sqlx，无需单独声明此包。
 
 复用 SQLx 基础设施的编译期查询实现。
 
