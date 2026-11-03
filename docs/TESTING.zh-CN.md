@@ -36,6 +36,8 @@ export SQLX_DORIS_EXTERNAL_VOLUME="<absolute-external-mount>"
 
 本地数据库必须先检查 Docker/Lima 虚拟机磁盘的物理位置。Docker 命名卷位于 VM 内时，VM 磁盘必须在外置盘；bind mount 的源目录也必须在外置盘。检查 docker inspect 的 FE 元数据、BE storage、日志卷和 docker info 的数据根目录。检查通过后才启动、拉取或创建夹具。不要把 Doris 服务源码、镜像、数据卷或 VM 磁盘放进本仓库。
 
+GitHub 托管的运行器没有外置盘，因此 Documentation 工作流只做文档、链接、锚点与格式校验，不执行构建。构建、测试、打包和真实契约在 Verify 工作流中运行，该工作流使用自托管运行器，其 workspace、临时目录和工具缓存都必须位于外置盘。
+
 <a name="doc-checks"></a>
 
 ## 无数据库检查
@@ -48,7 +50,7 @@ scripts/check 执行格式、Clippy、单元/协议/HTTP 模型测试、存储�
 ./scripts/dev ./scripts/test-docs
 ```
 
-文档门禁检查 21 对中英文页面、稳定锚点、同语言导航、相同代码/命令及表格数值。test-docs 编译去重后的普通 Rust 示例，并只检查 shell 语法，不执行其中的命令。要额外编译查询宏示例，需提供真实生成的外置元数据：`./scripts/dev ./scripts/test-docs --query-metadata "$SQLX_OFFLINE_DIR"`。默认检查未执行的元数据依赖示例会在汇总中明确列出。
+文档门禁检查 22 对中英文页面、稳定锚点、同语言导航、相同代码/命令及表格数值。test-docs 编译去重后的普通 Rust 示例，并只检查 shell 语法，不执行其中的命令。要额外编译查询宏示例，需提供真实生成的外置元数据：`./scripts/dev ./scripts/test-docs --query-metadata "$SQLX_OFFLINE_DIR"`。默认检查未执行的元数据依赖示例会在汇总中明确列出。
 
 <a name="doc-live"></a>
 

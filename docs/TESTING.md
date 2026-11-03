@@ -36,6 +36,8 @@ SQLX_DORIS_BUILD_ROOT selects a directory on that volume. The wrapper verifies t
 
 Before pulling or starting local Doris, inspect Docker/Lima disk locations, Docker's data root and all FE/BE data/log mounts. Named volumes live inside the VM, so its disk must be external. Bind mount source paths must also be external. Never place VM disks, images, server sources or Doris data in this repository.
 
+GitHub-hosted runners have no external volume, so the Documentation workflow only validates guides, links, anchors and formatting; it never builds. Builds, tests, packaging and live contracts run in the Verify workflow on a self-hosted runner whose workspace, temporary and tool-cache paths are external.
+
 <a name="doc-checks"></a>
 
 ## Checks without a database
@@ -50,7 +52,7 @@ Ignored live tests in ordinary cargo test mean unexecuted tests.
 ./scripts/dev ./scripts/test-docs
 ```
 
-The documentation gate checks all 21 English/Chinese pairs, stable anchors, same-language navigation, identical code/commands and table numbers. `test-docs` compiles the distinct ordinary Rust examples and checks shell syntax without executing it. To also compile the checked-query example, provide genuine prepared metadata on the external volume: `./scripts/dev ./scripts/test-docs --query-metadata "$SQLX_OFFLINE_DIR"`. The summary explicitly lists metadata-dependent examples not executed by the default check.
+The documentation gate checks all 22 English/Chinese pairs, stable anchors, same-language navigation, identical code/commands and table numbers. `test-docs` compiles the distinct ordinary Rust examples and checks shell syntax without executing it. To also compile the checked-query example, provide genuine prepared metadata on the external volume: `./scripts/dev ./scripts/test-docs --query-metadata "$SQLX_OFFLINE_DIR"`. The summary explicitly lists metadata-dependent examples not executed by the default check.
 
 <a name="doc-live"></a>
 

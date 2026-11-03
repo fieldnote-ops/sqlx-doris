@@ -1,0 +1,61 @@
+name: Verify
+on:
+  workflow_dispatch:
+    inputs:
+      live:
+        description: Run contracts against a dedicated TLS-enabled Doris instance
+        type: boolean
+        default: false
+permissions:
+  contents: read
+# Full verification needs an external volume for targets, caches, downloads
+# and temporary files, so it runs only on a self-hosted runner that provides
+# one. Keep hosted CI (see Documentation) free of builds and packaging.
+jobs:
+  check:
+    runs-on: [self-hosted, external-storage]
+    timeout-minutes: 60
+    env:
+      SQLX_DORIS_EXTERNAL_VOLUME: ${{ vars.SQLX_DORIS_EXTERNAL_VOLUME }}
+      SQLX_DORIS_BUILD_ROOT: ${{ vars.SQLX_DORIS_BUILD_ROOT }}
+    steps:
+      - name: Verify external runner storage before checkout
+        shell: bash
+        run: |
+          python3 -I -B - <<'PYTHON'
+          import os
+          from pathlib import Path
+          volume = Path(os.environ['SQLX_DORIS_EXTERNAL_VOLUME']).resolve()
+          if not volume.is_mount() or volume.stat().st_dev == Path('/').stat().st_dev:
+              raise SystemExit('a separately mounted external volume is required')
+          for key in ('GITHUB_WORKSPACE', 'RUNNER_TEMP', 'RUNNER_TOOL_CACHE'):
+              if not Path(os.environ[key]).resolve().is_relative_to(volume):
+                  raise SystemExit(f'{key} must be external')
+          PYTHON
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - run: ./scripts/dev cargo fetch --locked
+      - run: ./scripts/dev ./scripts/check
+      - run: ./scripts/dev ./scripts/test-msrv
+      - name: Dedicated Doris contracts
+        if: inputs.live
+        env:
+          DORIS_TEST_URL: ${{ secrets.DORIS_TEST_URL }}
+          DORIS_HTTP_URL: ${{ secrets.DORIS_HTTP_URL }}
+          DORIS_BE_HTTP_URL: ${{ secrets.DORIS_BE_HTTP_URL }}
+          DORIS_LOAD_FIXTURE_HOST: ${{ vars.DORIS_LOAD_FIXTURE_HOST }}
+          DORIS_KAFKA_BROKERS: ${{ vars.DORIS_KAFKA_BROKERS }}
+          DORIS_KAFKA_TOPIC: ${{ vars.DORIS_KAFKA_TOPIC }}
+          DORIS_KAFKA_CONTAINER: ${{ vars.DORIS_KAFKA_CONTAINER }}
+          DORIS_KAFKA_CONNECTION_FILE: ${{ vars.DORIS_KAFKA_CONNECTION_FILE }}
+          DORIS_KAFKA_SASL_CONNECTION_FILE: ${{ vars.DORIS_KAFKA_SASL_CONNECTION_FILE }}
+          DORIS_KAFKA_FAULT_MANIFEST: ${{ vars.DORIS_KAFKA_FAULT_MANIFEST }}
+          DOCKER_HOST: ${{ vars.DORIS_FIXTURE_DOCKER_HOST }}
+        run: |
+          ./scripts/dev ./scripts/prepare-test-certificates
+          ./scripts/dev ./scripts/prepare-load-fixtures
+          ./scripts/dev ./scripts/test-live
+          ./scripts/dev ./scripts/test-consumer --live
+          ./scripts/dev ./scripts/test-install --reuse-packages
+          ./scripts/dev ./scripts/test-msrv --macro-consumer

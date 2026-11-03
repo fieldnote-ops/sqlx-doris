@@ -1,60 +1,31 @@
-name: Tests
+name: Documentation
 on:
   push:
     branches: [main]
-  workflow_dispatch:
-    inputs:
-      live:
-        description: Run contracts against a dedicated TLS-enabled Doris instance
-        type: boolean
-        default: false
+  pull_request:
 permissions:
   contents: read
+# Hosted runners have no external volume, so this workflow only runs checks
+# that never create build products: guide/link/anchor validation and
+# formatting. Builds, tests, packaging and live contracts require an external
+# volume and run through ./scripts/dev on a self-hosted runner; see Verify.
 jobs:
-  check:
-    runs-on: [self-hosted, external-storage]
-    timeout-minutes: 60
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
-      SQLX_DORIS_EXTERNAL_VOLUME: ${{ vars.SQLX_DORIS_EXTERNAL_VOLUME }}
-      SQLX_DORIS_BUILD_ROOT: ${{ vars.SQLX_DORIS_BUILD_ROOT }}
+      SQLX_DORIS_DEV_ACTIVE: "1"
+      SQLX_DORIS_ARTIFACTS_DIR: ${{ runner.temp }}/artifacts
     steps:
-      - name: Verify external runner storage before checkout
-        shell: bash
-        run: |
-          python3 -I -B - <<'PYTHON'
-          import os
-          from pathlib import Path
-          volume = Path(os.environ['SQLX_DORIS_EXTERNAL_VOLUME']).resolve()
-          if not volume.is_mount() or volume.stat().st_dev == Path('/').stat().st_dev:
-              raise SystemExit('a separately mounted external volume is required')
-          for key in ('GITHUB_WORKSPACE', 'RUNNER_TEMP', 'RUNNER_TOOL_CACHE'):
-              if not Path(os.environ[key]).resolve().is_relative_to(volume):
-                  raise SystemExit(f'{key} must be external')
-          PYTHON
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
-      - run: ./scripts/dev cargo fetch --locked
-      - run: ./scripts/dev ./scripts/check
-      - run: ./scripts/dev ./scripts/test-msrv
-      - name: Dedicated Doris contracts
-        if: github.event_name == 'workflow_dispatch' && inputs.live
-        env:
-          DORIS_TEST_URL: ${{ secrets.DORIS_TEST_URL }}
-          DORIS_HTTP_URL: ${{ secrets.DORIS_HTTP_URL }}
-          DORIS_BE_HTTP_URL: ${{ secrets.DORIS_BE_HTTP_URL }}
-          DORIS_LOAD_FIXTURE_HOST: ${{ vars.DORIS_LOAD_FIXTURE_HOST }}
-          DORIS_KAFKA_BROKERS: ${{ vars.DORIS_KAFKA_BROKERS }}
-          DORIS_KAFKA_TOPIC: ${{ vars.DORIS_KAFKA_TOPIC }}
-          DORIS_KAFKA_CONTAINER: ${{ vars.DORIS_KAFKA_CONTAINER }}
-          DORIS_KAFKA_CONNECTION_FILE: ${{ vars.DORIS_KAFKA_CONNECTION_FILE }}
-          DORIS_KAFKA_SASL_CONNECTION_FILE: ${{ vars.DORIS_KAFKA_SASL_CONNECTION_FILE }}
-          DORIS_KAFKA_FAULT_MANIFEST: ${{ vars.DORIS_KAFKA_FAULT_MANIFEST }}
-          DOCKER_HOST: ${{ vars.DORIS_FIXTURE_DOCKER_HOST }}
-        run: |
-          ./scripts/dev ./scripts/prepare-test-certificates
-          ./scripts/dev ./scripts/prepare-load-fixtures
-          ./scripts/dev ./scripts/test-live
-          ./scripts/dev ./scripts/test-consumer --live
-          ./scripts/dev ./scripts/test-install --reuse-packages
-          ./scripts/dev ./scripts/test-msrv --macro-consumer
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Bilingual guides, links and anchors
+        run: python -B scripts/check-docs
+      - name: Install the formatting pins
+        run: python -m pip install --disable-pip-version-check black==25.9.0
+      - name: Rust and Python formatting
+        run: python -B scripts/format --check

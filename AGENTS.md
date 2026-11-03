@@ -77,7 +77,9 @@
 - Run build/test/package tooling via ./scripts/dev. All target directories, caches,
   downloads, logs, temporary files, Docker VM disks and Doris data must remain on
   the external volume. Stop if it is unavailable; verify VM/data storage before
-  starting or pulling database fixtures. Keep .cargo/ ignored.
+  starting or pulling database fixtures. Keep .cargo/ ignored. Hosted CI has no
+  external volume, so keep it to documentation, link and formatting checks; run
+  builds, tests, packaging and live contracts only on external-storage runners.
 - Keep only user-facing documentation (installation, usage, API, compatibility,
   testing, performance and release notes). Store iteration notes, research,
   intermediate plans and review reports outside this repository.
