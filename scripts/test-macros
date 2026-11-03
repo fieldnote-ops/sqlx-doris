@@ -1,159 +1,557 @@
 #!/usr/bin/env python3
-"""Verify both online origins, isolated external offline caches, and missing data."""
-import hashlib
-import json
+"""Exercise renamed, online, offline and rejected Doris macro consumers."""
 import os
-from pathlib import Path
-import subprocess
 import sys
-import tempfile
+from pathlib import Path
 
-project = Path(__file__).resolve().parents[1]
 if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
-    os.execv(
-        str(project / "scripts/dev"),
-        [
-            str(project / "scripts/dev"),
-            sys.executable,
-            "-B",
-            str(Path(__file__).resolve()),
-        ],
+    dev = Path(__file__).resolve().parent / "dev"
+    os.execv(str(dev), [str(dev), sys.executable, "-B", *sys.argv])
+from _common import *
+import json
+import shutil
+import time
+
+url = os.environ.get("DORIS_TEST_URL")
+if not url:
+    raise SystemExit("DORIS_TEST_URL is required")
+directory = Path(os.environ["SQLX_DORIS_BUILD_ROOT"]) / "native-macro-consumers"
+directory.mkdir(exist_ok=True)
+table = "sdk_macro_" + str(time.time_ns())
+setup = directory / "setup"
+consumer = directory / "consumer"
+for path in (setup, consumer):
+    (path / "src").mkdir(parents=True, exist_ok=True)
+    (path / "queries").mkdir(exist_ok=True)
+    (path / "migrations").mkdir(exist_ok=True)
+
+
+def manifest(path, name, features, alias="dbkit", sqlx_features=("macros", "migrate")):
+    upstream = (
+        'sqlx = { version = "=0.9.0", default-features = false, features = '
+        + json.dumps(sqlx_features)
+        + " }\n"
+        if sqlx_features is not None
+        else ""
     )
-os.chdir(project)
-base_env = os.environ.copy()
-for backend in ["MYSQL", "DORIS"]:
-    base_env[f"{backend}_URL"] = base_env[f"{backend}_TEST_URL"]
-root = Path(base_env["SQLX_DORIS_BUILD_ROOT"])
-artifacts = Path(base_env["SQLX_DORIS_ARTIFACTS_DIR"])
-version = base_env.get("DORIS_TEST_VERSION", "4.1.5")
-evidence = []
+    (path / "Cargo.toml").write_text(
+        f"""[package]
+name = {json.dumps(name)}
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.94"
+[workspace]
+resolver = "3"
+[dependencies]
+{alias} = {{ package = "sqlx-doris", path = {json.dumps(str(project / 'crates/sqlx-doris'))}, features = {json.dumps(features)} }}
+{upstream}tokio = {{ version = "1", features = ["macros", "rt-multi-thread"] }}
+"""
+    )
 
-with (artifacts / "macros.log").open("w") as log:
 
-    def run(label, example, env):
-        (project / f"crates/sqlx-doris/examples/{example}.rs").touch()
-        command = [
+manifest(setup, "doris-macro-setup", [])
+manifest(consumer, "doris-renamed-consumer", ["macros", "migrate"])
+(setup / "src/main.rs").write_text(
+    (project / "tests/fixtures/macro_setup.rs").read_text()
+)
+
+env = os.environ.copy()
+env.update(DATABASE_URL=url, MACRO_TABLE=table)
+cache = directory / "offline"
+cache.mkdir(exist_ok=True)
+env.update(SQLX_OFFLINE="false", SQLX_OFFLINE_DIR=str(cache))
+run(
+    [
+        [
             "cargo",
             "run",
-            "--locked",
-            "-p",
-            "sqlx-doris",
-            "--features",
-            "macros",
-            "--example",
-            example,
+            "--offline",
+            "--manifest-path",
+            str(setup / "Cargo.toml"),
+            "--",
+            "setup",
         ]
-        print(label, flush=True)
-        log.write(label + "\n")
-        process = subprocess.Popen(
-            command,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        for line in process.stdout:
-            print(line, end="", flush=True)
-            log.write(line)
-        code = process.wait()
-        log.flush()
-        if code:
-            raise SystemExit(code)
-        evidence.append(label)
+    ],
+    "macro-setup.log",
+    env,
+)
 
-    for backend in ["MYSQL", "DORIS"]:
-        profile = "mysql-8.4.13" if backend == "MYSQL" else "doris-" + version
-        cache = root / "fixtures/sqlx-metadata" / profile
-        cache.mkdir(parents=True, exist_ok=True)
-        env = base_env.copy()
-        env.update(
-            DATABASE_URL=env[f"{backend}_TEST_URL"],
-            SQLX_OFFLINE="false",
-            SQLX_OFFLINE_DIR=str(cache),
-        )
-        examples = (
-            ["query_macro"]
-            if backend == "MYSQL"
-            else ["query_macro", "doris_query_macro"]
-        )
-        for example in examples:
-            run(f"online {profile} {example}", example, env)
-        files = sorted(cache.glob("query-*.json"))
-        if not files:
-            raise SystemExit("online macros did not save metadata")
-        queries = []
-        for path in files:
-            data = json.loads(path.read_text())
-            if data["db_name"] != "MySQL":
-                raise SystemExit("unexpected offline driver identity")
-            if data["hash"] != hashlib.sha256(data["query"].encode()).hexdigest():
-                raise SystemExit("unexpected query hash")
-            queries.append(
-                {
-                    "path": path.name,
-                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-                }
-            )
-        (cache / "origin.json").write_text(
-            json.dumps(
-                {"profile": profile, "sqlx": "0.9.0", "queries": queries}, indent=2
-            )
-            + "\n"
-        )
-        env.pop("DATABASE_URL", None)
-        env["SQLX_OFFLINE"] = "true"
-        for example in examples:
-            run(f"offline {profile} {example}", example, env)
+source = (
+    (project / "tests/fixtures/macro_consumer.rs")
+    .read_text()
+    .replace("__TABLE__", table)
+)
 
-    with tempfile.TemporaryDirectory(prefix="macro-cache-missing-") as empty:
-        env = base_env.copy()
-        env.pop("DATABASE_URL", None)
-        env.update(SQLX_OFFLINE="true", SQLX_OFFLINE_DIR=empty)
-        (project / "crates/sqlx-doris/examples/query_macro.rs").touch()
-        result = subprocess.run(
+(consumer / "queries/one.sql").write_text(
+    "SELECT CAST(? AS BIGINT) AS `id!`,CAST(? AS STRING) AS `name!: String`"
+)
+(consumer / "queries/scalar.sql").write_text("SELECT CAST(? AS BIGINT) AS `value!`")
+(consumer / "migrations/1_embed.sql").write_text("SELECT 1;")
+main = consumer / "src/main.rs"
+main.write_text(source)
+results = []
+
+
+def compile_case(name, text, expected, case_env):
+    main.write_text(text + "\n// case: " + name + "\n")
+    log = artifacts / ("macro-" + name + ".log")
+    with log.open("w") as output:
+        command = [
+            "cargo",
+            "check",
+            "--offline",
+            "--manifest-path",
+            str(consumer / "Cargo.toml"),
+        ]
+        code = subprocess.run(
+            command, stdout=output, stderr=subprocess.STDOUT, env=case_env, cwd=consumer
+        ).returncode
+    if (code == 0) != expected:
+        raise SystemExit(f"Unexpected macro result for {name}: {log}")
+    results.append(dict(case=name, expected_success=expected, passed=True))
+
+
+try:
+    compile_case("online", source, True, env)
+    run(
+        [
             [
                 "cargo",
-                "check",
+                "run",
+                "--offline",
+                "--manifest-path",
+                str(consumer / "Cargo.toml"),
+            ]
+        ],
+        "macro-online-run.log",
+        env,
+    )
+    run(
+        [
+            [
+                "cargo",
+                "run",
+                "--offline",
+                "--manifest-path",
+                str(setup / "Cargo.toml"),
+                "--",
+                "count",
+            ]
+        ],
+        "macro-no-writes.log",
+        env,
+    )
+    offline = env.copy()
+    offline["SQLX_OFFLINE"] = "true"
+    offline.pop("DATABASE_URL", None)
+    compile_case("offline", source, True, offline)
+    # The runtime URL stays present only to execute the already offline-checked binary.
+    run(
+        [
+            [
+                "cargo",
+                "run",
+                "--offline",
+                "--manifest-path",
+                str(consumer / "Cargo.toml"),
+            ]
+        ],
+        "macro-offline-run.log",
+        offline,
+    )
+    for alias in ("type",):
+        path = directory / ("alias-" + alias)
+        for folder in ("src", "queries", "migrations"):
+            (path / folder).mkdir(parents=True, exist_ok=True)
+        manifest(path, "doris-alias-" + alias, ["macros", "migrate"], alias)
+        rust_alias = "r#type" if alias == "type" else "sqlx"
+        text = source.replace("dbkit", rust_alias)
+        text += (
+            "\n#[allow(dead_code)] fn absolute_override(){let _="
+            + rust_alias
+            + '::query_scalar!("SELECT CAST(? AS LARGEINT) AS `x!: ::'
+            + rust_alias
+            + '::types::LargeInt`", ::'
+            + rust_alias
+            + "::types::LargeInt(1));}\n"
+        )
+        for file in ("one.sql", "scalar.sql"):
+            shutil.copy(consumer / "queries" / file, path / "queries" / file)
+        shutil.copy(
+            consumer / "migrations/1_embed.sql", path / "migrations/1_embed.sql"
+        )
+        (path / "src/main.rs").write_text(text)
+        run(
+            [
+                [
+                    "cargo",
+                    "run",
+                    "--offline",
+                    "--manifest-path",
+                    str(path / "Cargo.toml"),
+                ]
+            ],
+            "macro-alias-" + alias + "-online.log",
+            env,
+        )
+        (path / "src/main.rs").write_text(
+            text + "\n// force offline alias compilation\n"
+        )
+        run(
+            [
+                [
+                    "cargo",
+                    "run",
+                    "--offline",
+                    "--manifest-path",
+                    str(path / "Cargo.toml"),
+                ]
+            ],
+            "macro-alias-" + alias + "-offline.log",
+            offline,
+        )
+        results.append(dict(case="alias-" + alias + "-online-offline", passed=True))
+    prefix = " fn main(){"
+    for name, body in [
+        ("no-public-sqlx-reexport", 'let _=dbkit::sqlx::query("SELECT 1");'),
+        ("no-duplicate-entry-points", "use dbkit::{FromRow,migrate};"),
+        ("wrong-count", 'let _=dbkit::query!("SELECT CAST(? AS BIGINT)");'),
+        ("bad-sql", 'let _=dbkit::query!("SELEC broken");'),
+        ("ambiguous", 'let _=dbkit::query!("SELECT CAST(1 AS LARGEINT) AS wide");'),
+        (
+            "unencodable",
+            'struct Nope;let _=dbkit::query!("SELECT CAST(? AS BIGINT)",Nope);',
+        ),
+        (
+            "wrong-output",
+            'struct R{id:String}let _=dbkit::query_as!(R,"SELECT CAST(1 AS BIGINT) AS `id!`");',
+        ),
+    ]:
+        compile_case(name, prefix + body + "}", False, env)
+        if name == "no-duplicate-entry-points":
+            diagnostic = (artifacts / "macro-no-duplicate-entry-points.log").read_text()
+            assert all(
+                f"no `{symbol}` in the root" in diagnostic
+                for symbol in ("FromRow", "migrate")
+            )
+    compile_case(
+        "missing-cache",
+        prefix + 'let _=dbkit::query!("SELECT CAST(987654321 AS BIGINT) AS fresh");}',
+        False,
+        offline,
+    )
+    consumer_manifest = consumer / "Cargo.toml"
+    original_manifest = consumer_manifest.read_text()
+    # Doris query macros need upstream derive helpers, but not its query macro
+    # feature or any built-in database driver.
+    manifest(
+        consumer,
+        "doris-renamed-consumer",
+        ["macros", "migrate"],
+        sqlx_features=["derive", "migrate"],
+    )
+    import tomllib
+
+    minimal_dependencies = tomllib.loads(consumer_manifest.read_text())["dependencies"]
+    assert minimal_dependencies["sqlx"]["features"] == ["derive", "migrate"]
+    try:
+        import re
+
+        minimal, substitutions = re.subn(
+            r"// BEGIN_EMBEDDED_MIGRATION_CHECK[\s\S]*?// END_EMBEDDED_MIGRATION_CHECK",
+            "",
+            source,
+        )
+        assert substitutions == 1
+        compile_case("minimal-upstream-features", minimal, True, offline)
+    finally:
+        consumer_manifest.write_text(original_manifest)
+    manifest(
+        consumer,
+        "doris-renamed-consumer",
+        ["macros", "migrate"],
+        sqlx_features=None,
+    )
+    assert "sqlx" not in tomllib.loads(consumer_manifest.read_text())["dependencies"]
+    try:
+        compile_case(
+            "missing-direct-sqlx",
+            prefix + 'let _=dbkit::query!("SELECT CAST(1 AS BIGINT) AS `id!`");}',
+            False,
+            env,
+        )
+        assert (
+            "direct dependency named sqlx"
+            in (artifacts / "macro-missing-direct-sqlx.log").read_text()
+        )
+    finally:
+        consumer_manifest.write_text(original_manifest)
+    main.write_text(source)
+    # Exercise the actual companion CLI against the renamed consumer.
+    run(
+        [
+            [
+                "cargo",
+                "build",
                 "--locked",
+                "--offline",
                 "-p",
                 "sqlx-doris",
                 "--features",
-                "macros",
-                "--example",
-                "query_macro",
+                "cli",
+                "--bin",
+                "cargo-sqlx-doris",
+            ]
+        ],
+        "macro-cli-build.log",
+        env,
+    )
+    cli = str(Path(os.environ["CARGO_TARGET_DIR"]) / "debug/cargo-sqlx-doris")
+    run(
+        [
+            [
+                cli,
+                "prepare",
+                "--manifest-path",
+                str(consumer / "Cargo.toml"),
+                "--output",
+                str(cache),
+                "--cargo-offline",
             ],
-            env=env,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            [
+                cli,
+                "prepare",
+                "--check",
+                "--manifest-path",
+                str(consumer / "Cargo.toml"),
+                "--output",
+                str(cache),
+                "--cargo-offline",
+            ],
+        ],
+        "macro-cli-prepare.log",
+        env,
+    )
+    compile_case("cli-offline", source, True, offline)
+    results.append(dict(case="cli-prepare-and-check", passed=True))
+    json_args = [
+        cli,
+        "prepare",
+        "--json",
+        "--manifest-path",
+        str(consumer / "Cargo.toml"),
+        "--output",
+        str(cache),
+        "--cargo-offline",
+    ]
+    json_result = subprocess.run(json_args, env=env, capture_output=True, text=True)
+    value = json.loads(json_result.stdout)
+    assert json_result.returncode == 0 and not json_result.stderr
+    assert (
+        value["schema"] == "sqlx-doris-cli-result-v1"
+        and value["prepare"]["query_count"] > 0
+    )
+    log = Path(value["cargo_diagnostics_file"])
+    assert (
+        log.is_relative_to(Path(env["SQLX_DORIS_EXTERNAL_VOLUME"]).resolve())
+        and log.stat().st_mode & 0o077 == 0
+    )
+    results.append(dict(case="cli-prepare-json-single-result", passed=True))
+    main_file = consumer / "src/main.rs"
+    previous_source = main_file.read_bytes()
+    previous_cache = {p.name: p.read_bytes() for p in cache.glob("query-*.json")}
+    marker = "PRIVATE_COMPILER_SOURCE_MUST_NOT_ECHO"
+    main_file.write_text('fn main(){let _:[i32;1]=["' + marker + '"]; }')
+    try:
+        failed = subprocess.run(json_args, env=env, capture_output=True, text=True)
+        value = json.loads(failed.stdout)
+        assert (
+            failed.returncode == 3 and not failed.stderr and marker not in failed.stdout
         )
-        (artifacts / "macro-missing-cache.log").write_text(result.stdout)
-        if (
-            result.returncode == 0
-            or "there is no cached data for this query" not in result.stdout
-        ):
-            raise SystemExit(
-                "missing offline metadata did not fail for the expected reason"
+        assert value["exit_code"] == 3 and value["server_read_only"]
+        log = Path(value["cargo_diagnostics_file"])
+        assert log.stat().st_mode & 0o077 == 0 and marker in log.read_text()
+        assert previous_cache == {
+            p.name: p.read_bytes() for p in cache.glob("query-*.json")
+        }
+    finally:
+        main_file.write_bytes(previous_source)
+    results.append(
+        dict(
+            case="cli-prepare-json-compiler-failure-private-log-preserves-cache",
+            passed=True,
+        )
+    )
+    cached = next(cache.glob("query-*.json"))
+    original = cached.read_bytes()
+    stale = json.loads(original)
+    stale["query"] += " -- stale"
+    cached.write_text(json.dumps(stale))
+    try:
+        with (artifacts / "macro-cli-check-stale.log").open("w") as output:
+            process = subprocess.run(
+                [
+                    cli,
+                    "prepare",
+                    "--check",
+                    "--manifest-path",
+                    str(consumer / "Cargo.toml"),
+                    "--output",
+                    str(cache),
+                    "--cargo-offline",
+                    "--",
+                    "--all-features",
+                ],
+                env=env,
+                stdout=output,
+                stderr=subprocess.STDOUT,
             )
-        print("missing offline metadata rejected as expected", flush=True)
-        log.write("missing offline metadata rejected as expected\n")
-        evidence.append("missing offline metadata rejected")
-    # Leave a successful final artifact after the deliberate negative build.
-    env["SQLX_OFFLINE_DIR"] = str(
-        root / "fixtures/sqlx-metadata" / ("doris-" + version)
-    )
-    run("offline final shared macro", "query_macro", env)
+        if process.returncode == 0:
+            raise SystemExit("prepare --check accepted stale metadata")
+        if (
+            "offline metadata"
+            not in (artifacts / "macro-cli-check-stale.log").read_text()
+        ):
+            raise SystemExit("stale metadata failed for an unrelated reason")
+    finally:
+        cached.write_bytes(original)
+    results.append(dict(case="cli-check-rejects-stale", passed=True))
+    semantic = json.loads(original)
+    nullable = semantic["describe"]["nullable"]
+    if not nullable:
+        cached = next(
+            p
+            for p in cache.glob("query-*.json")
+            if json.loads(p.read_bytes())["describe"]["nullable"]
+        )
+        original = cached.read_bytes()
+        semantic = json.loads(original)
+        nullable = semantic["describe"]["nullable"]
+    nullable[0] = not nullable[0]
+    cached.write_text(json.dumps(semantic))
+    try:
+        with (artifacts / "macro-cli-check-types.log").open("w") as output:
+            process = subprocess.run(
+                [
+                    cli,
+                    "prepare",
+                    "--check",
+                    "--manifest-path",
+                    str(consumer / "Cargo.toml"),
+                    "--output",
+                    str(cache),
+                    "--cargo-offline",
+                ],
+                env=env,
+                stdout=output,
+                stderr=subprocess.STDOUT,
+            )
+        assert process.returncode != 0
+        assert (
+            "offline metadata differs"
+            in (artifacts / "macro-cli-check-types.log").read_text()
+        )
+    finally:
+        cached.write_bytes(original)
+    results.append(dict(case="cli-check-rejects-type-drift", passed=True))
+    if os.name == "posix":
+        import fcntl
 
-(artifacts / "macro-validation-summary.json").write_text(
-    json.dumps(
-        {
-            "doris": version,
-            "passed": evidence,
-            "offline_caches_external": True,
-            "database_url_unset_during_offline_compilation": True,
-        },
-        indent=2,
+        with (cache / ".sqlx-doris-prepare.lock").open("a") as held:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            process = subprocess.run(
+                [
+                    cli,
+                    "prepare",
+                    "--check",
+                    "--manifest-path",
+                    str(consumer / "Cargo.toml"),
+                    "--output",
+                    str(cache),
+                    "--cargo-offline",
+                ],
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            (artifacts / "macro-cli-prepare-contention.log").write_text(
+                process.stdout + process.stderr
+            )
+            assert process.returncode != 0 and "prepare lock" in process.stderr
+            assert "Removed" not in process.stderr
+        results.append(dict(case="cli-prepare-excludes-processes", passed=True))
+        import hashlib
+
+        workspace_key = hashlib.sha256(str(consumer).encode()).hexdigest()
+        workspace_lock = (
+            Path(env["TMPDIR"])
+            / "prepare-workspaces"
+            / workspace_key
+            / ".sqlx-doris-prepare.lock"
+        )
+        with workspace_lock.open("a") as held:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            process = subprocess.run(
+                [
+                    cli,
+                    "prepare",
+                    "--manifest-path",
+                    str(consumer / "Cargo.toml"),
+                    "--output",
+                    str(directory / "alternative-cache"),
+                    "--cargo-offline",
+                ],
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            (artifacts / "macro-cli-workspace-contention.log").write_text(
+                process.stdout + process.stderr
+            )
+            assert process.returncode != 0 and "prepare lock" in process.stderr
+            assert "Removed" not in process.stderr
+        results.append(dict(case="cli-prepare-excludes-workspace", passed=True))
+    notes = cache / "query-notes.json"
+    notes.write_text("user note, not query metadata")
+    cached.write_text("{ broken JSON")
+    run(
+        [
+            [
+                cli,
+                "prepare",
+                "--manifest-path",
+                str(consumer / "Cargo.toml"),
+                "--output",
+                str(cache),
+                "--cargo-offline",
+            ]
+        ],
+        "macro-cli-repair-cache.log",
+        env,
     )
-    + "\n"
+    assert json.loads(cached.read_bytes())["hash"] == json.loads(original)["hash"]
+    assert notes.read_text() == "user note, not query metadata"
+    results.append(dict(case="cli-repairs-corrupt-cache", passed=True))
+    compile_case("repaired-offline", source, True, offline)
+finally:
+    main.write_text(source)
+    run(
+        [
+            [
+                "cargo",
+                "run",
+                "--offline",
+                "--manifest-path",
+                str(setup / "Cargo.toml"),
+                "--",
+                "cleanup",
+            ]
+        ],
+        "macro-cleanup.log",
+        env,
+    )
+
+(artifacts / "native-macro-summary.json").write_text(
+    json.dumps(results, indent=2) + "\n"
 )
-print(f"Macro online/offline validation passed; log: {artifacts/'macros.log'}")
+print(f"Macro contracts passed: {len(results)}")

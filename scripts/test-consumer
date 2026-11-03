@@ -1,307 +1,336 @@
 #!/usr/bin/env python3
-"""Verify isolated source/bundle consumers without a root patch, optionally live."""
-import argparse
-import fcntl
-import hashlib
-import json
+"""Build an isolated SQLx/Doris consumer and reject extra database drivers."""
 import os
-from pathlib import Path
-import re
-import subprocess
 import sys
-import tarfile
-import time
-import tomllib
+from pathlib import Path
 
-project = Path(__file__).resolve().parents[1]
 if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
-    os.execv(
-        str(project / "scripts/dev"),
-        [
-            str(project / "scripts/dev"),
-            sys.executable,
-            "-B",
-            str(Path(__file__).resolve()),
-            *sys.argv[1:],
-        ],
-    )
+    dev = Path(__file__).resolve().parent / "dev"
+    os.execv(str(dev), [str(dev), sys.executable, "-B", *sys.argv])
+from _common import *
+import json
+import argparse
+
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument(
-    "--live",
-    action="store_true",
-    help="require both TEST_URL variables and execute both real databases",
-)
-parser.add_argument(
-    "--bundle", type=Path, help="exact compatibility archive on the external build root"
-)
+parser.add_argument("--live", action="store_true")
 args = parser.parse_args()
-if os.environ.get("CARGO_BUILD_TARGET"):
-    raise SystemExit("test-consumer runs on the host; unset CARGO_BUILD_TARGET")
-if args.live:
-    for key in ["MYSQL_TEST_URL", "DORIS_TEST_URL"]:
-        if not os.environ.get(key):
-            raise SystemExit(f"{key} is required for --live")
-root = Path(os.environ["SQLX_DORIS_BUILD_ROOT"])
-# Shared live fixtures must not be created by two platform consumers at once.
-if args.live:
-    lock_path = root / "runtime/consumer-fixture.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    fixture_lock = lock_path.open("a+")
-    try:
-        fcntl.flock(fixture_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        raise SystemExit(
-            "another live consumer owns the fixed fixture; run consumers serially"
-        )
+if args.live and not os.environ.get("DORIS_TEST_URL"):
+    raise SystemExit("DORIS_TEST_URL is required for --live")
+# Separate manifests prevent workspace dev-dependencies from hiding feature leaks.
 host = next(
-    line.split(": ", 1)[1]
+    line.removeprefix("host: ")
     for line in subprocess.check_output(["rustc", "-vV"], text=True).splitlines()
     if line.startswith("host: ")
 )
-archive = (
-    args.bundle
-    or Path(os.environ["CARGO_TARGET_DIR"]) / "package/sqlx-doris-compat-0.1.0.tar.gz"
-)
-if not archive.resolve().is_relative_to(root.resolve()):
-    raise SystemExit(
-        "compatibility archive must remain on the selected external build root"
+feature_results = []
+for case, features, upstream in [
+    ("driver-only", [], None),
+    ("migrate-only", ["migrate"], None),
+    ("macros-only", ["macros"], None),
+    ("checked-migrate", ["macros", "migrate"], None),
+    ("operations-only", ["operations"], None),
+    ("stream-load-only", ["stream-load"], None),
+    ("cli-only", ["cli"], None),
+    ("cli-admin", ["cli-admin"], None),
+    ("cli-admin-kafka", ["cli-admin-kafka"], None),
+    ("runtime-minimal", [], []),
+    ("upstream-macros", ["migrate"], ["macros", "migrate"]),
+]:
+    fixture = Path(os.environ["SQLX_DORIS_BUILD_ROOT"]) / "consumer-features" / case
+    (fixture / "src").mkdir(parents=True, exist_ok=True)
+    upstream_dependency = (
+        'sqlx = { version = "=0.9.0", default-features = false, features = '
+        + json.dumps(upstream)
+        + " }\n"
+        if upstream is not None
+        else ""
     )
-if not archive.is_file():
-    raise SystemExit(
-        "run scripts/check to build the current compatibility bundle first"
+    (fixture / "Cargo.toml").write_text(
+        f"""[package]
+name = "doris-consumer-{case}"
+version = "0.0.0"
+edition = "2024"
+[workspace]
+[dependencies]
+sqlx-doris = {{ path = {json.dumps(str(project / "crates/sqlx-doris"))}, default-features = false, features = {json.dumps(features)} }}
+{upstream_dependency}"""
     )
-run = (
-    Path(os.environ["SQLX_DORIS_ARTIFACTS_DIR"])
-    / "consumer"
-    / time.strftime("%Y%m%d-%H%M%S")
-)
-run.mkdir(parents=True, exist_ok=False)
-with tarfile.open(archive) as package:
-    package.extractall(run / "archive", filter="data")
-bundle = run / "archive/sqlx-doris-compat-0.1.0"
-for name, expected in json.loads((bundle / "SHA256SUMS.json").read_text()).items():
-    if hashlib.sha256((bundle / name).read_bytes()).hexdigest() != expected:
-        raise SystemExit(f"bundle checksum mismatch: {name}")
-for name in ("README.md", "README.en.md"):
-    if (bundle / "crates/sqlx-doris" / name).read_bytes() != (
-        project / "crates/sqlx-doris" / name
-    ).read_bytes():
-        raise SystemExit(
-            f"packaged {name} differs from current source; repackage first"
-        )
-
-results = []
-cases = [
-    (
-        "bundle",
-        project / "crates/sqlx-doris/README.md",
-        bundle / "crates/sqlx-doris",
-    ),
-    (
-        "source",
-        project / "docs/INSTALLATION.md",
-        project / "crates/sqlx-doris",
-    ),
-]
-for label, source, dependency in cases:
-    text = source.read_text()
-    snippet = re.search(r"```rust,no_run\n(.*?)\n```", text, re.S)
-    if not snippet:
-        raise SystemExit(f"missing installation program in {source}")
-    if "[patch.crates-io]" in text:
-        raise SystemExit(f"installation guide still requires a root patch: {source}")
-    if "sqlx_doris::sqlx" not in text:
-        raise SystemExit(f"installation guide lacks the patch-free SDK API: {source}")
-    directory = run / (label + "-consumer")
-    (directory / "src").mkdir(parents=True)
-    rust = "\n".join(
-        line[2:] if line.startswith("# ") else line for line in snippet[1].splitlines()
-    )
-    identity = r"""
-pub fn same_pool(v: sqlx_doris::MySqlPool) -> sqlx_doris::sqlx::Pool<sqlx_doris::sqlx::MySql> {
-    v
+    source = "pub use sqlx_doris::Doris;\n"
+    if upstream is not None:
+        source += """pub async fn answer(pool: &sqlx::Pool<Doris>) -> sqlx::Result<i64> {
+    sqlx::query_scalar("SELECT CAST(? AS BIGINT)")
+        .bind(42_i64)
+        .fetch_one(pool)
+        .await
 }
-pub fn same_database(v: sqlx_doris::sqlx::MySql) -> sqlx_doris::sqlx::MySql {
-    v
-}
-pub fn same_connection(
-    v: sqlx_doris::sqlx::MySqlConnection,
-) -> sqlx_doris::sqlx::MySqlConnection {
-    v
-}
-pub fn same_row(v: sqlx_doris::sqlx::mysql::MySqlRow) -> sqlx_doris::sqlx::mysql::MySqlRow {
-    v
-}
-pub fn same_transaction<'a>(
-    v: sqlx_doris::sqlx::Transaction<'a, sqlx_doris::sqlx::MySql>,
-) -> sqlx_doris::sqlx::Transaction<'a, sqlx_doris::sqlx::MySql> {
-    v
+pub fn pool(options: sqlx_doris::DorisPoolOptions) -> sqlx::Pool<Doris> {
+    options.connect_lazy("doris://root@localhost/app").unwrap()
 }
 """
-    (directory / "src/lib.rs").write_text(rust + identity)
-    (directory / "src/main.rs").write_bytes(
-        (project / "tools/consumer-compat.rs").read_bytes()
+    if "macros" in (upstream or []):
+        (fixture / "migrations").mkdir(exist_ok=True)
+        (fixture / "migrations/1_check.sql").write_text("SELECT 1;\n")
+        source += """pub static MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+pub async fn migrate(pool: &sqlx::Pool<Doris>) -> Result<(), sqlx::migrate::MigrateError> {
+    MIGRATIONS.run(pool).await
+}
+"""
+    (fixture / "src/lib.rs").write_text(source)
+    manifest_args = ["--manifest-path", str(fixture / "Cargo.toml")]
+    run([["cargo", "check", "--offline", *manifest_args]], "consumer-" + case + ".log")
+    tree = subprocess.check_output(
+        [
+            "cargo",
+            "tree",
+            "--offline",
+            *manifest_args,
+            "--edges",
+            "normal,build",
+            "--prefix",
+            "none",
+            "--format",
+            "{p}",
+        ],
+        text=True,
+        cwd=fixture,
     )
-    manifest = (
-        '[package]\nname = "sqlx-doris-consumer"\nversion = "0.0.0"\nedition = "2024"\n'
-        "[dependencies]\nsqlx-doris = { path = "
-        + json.dumps(str(dependency))
-        + ", default-features = false }\n"
-        'sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }\n'
-        'tokio = { version = "1", features = ["macros", "rt-multi-thread"] }\n'
+    (artifacts / ("consumer-" + case + "-dependencies.txt")).write_text(tree)
+    packages = {line.split()[0] for line in tree.splitlines() if line}
+    forbidden = {
+        "sqlx-mysql",
+        "sqlx-postgres",
+        "sqlx-sqlite",
+    }
+    if "macros" not in (upstream or []):
+        forbidden.add("sqlx-macros")
+    if "macros" not in features:
+        forbidden.add("sqlx-doris-macros")
+        if "macros" not in (upstream or []):
+            forbidden.add("sqlx-macros-core")
+    if upstream is None:
+        forbidden.add("sqlx")
+    is_cli = any(feature.startswith("cli") for feature in features)
+    is_admin = bool(set(features).intersection(("cli-admin", "cli-admin-kafka")))
+    if not is_cli:
+        forbidden.update(("tokio-macros", "clap", "sqlx-doris-cli"))
+    if not is_admin and "stream-load" not in features:
+        forbidden.add("reqwest")
+    if not is_cli and not set(features).intersection(("operations", "stream-load")):
+        forbidden.add("sqlx-doris-ops")
+    if extra := packages.intersection(forbidden):
+        raise SystemExit(f"Unexpected dependencies for {case}: {sorted(extra)}")
+    metadata = json.loads(
+        subprocess.check_output(
+            [
+                "cargo",
+                "metadata",
+                "--offline",
+                *manifest_args,
+                "--filter-platform",
+                host,
+                "--format-version",
+                "1",
+            ],
+            text=True,
+            cwd=fixture,
+        )
     )
-    (directory / "Cargo.toml").write_text(manifest)
-    manifest_flags = ["--manifest-path", str(directory / "Cargo.toml")]
-    flags = manifest_flags
-    with (directory / "check.log").open("w") as output:
-
-        def command(argv):
-            output.write("$ " + " ".join(argv) + "\n")
-            output.flush()
-            subprocess.run(
-                argv, cwd=project, stdout=output, stderr=subprocess.STDOUT, check=True
-            )
-
-        command(["cargo", "generate-lockfile", "--offline", *manifest_flags])
-        command(["cargo", "check", "--locked", "--offline", *flags])
-        # Use each guide's manifest and program without injecting dependencies.
-        documented_applications = []
-        for language in ("zh", "en"):
-            documented_source = (
-                source if language == "zh" else source.with_name(source.stem + ".en.md")
-            )
-            documented_text = documented_source.read_text()
-            documented_rust = re.search(
-                r"```rust,no_run\n(.*?)\n```", documented_text, re.S
-            )
-            if not documented_rust:
-                raise SystemExit(f"missing documented main.rs in {documented_source}")
-            documented_manifest = re.search(
-                r"```toml\n(.*?)\n```", documented_text, re.S
-            )
-            if not documented_manifest:
-                raise SystemExit(f"missing complete Cargo.toml in {documented_source}")
-            manifest_text = re.sub(
-                r"^sqlx-doris = .*$",
-                "sqlx-doris = { path = "
-                + json.dumps(str(dependency))
-                + ", default-features = false }",
-                documented_manifest[1],
-                count=1,
-                flags=re.M,
-            )
-            relocated = tomllib.loads(manifest_text)
-            if "patch" in relocated:
-                raise SystemExit(
-                    f"documented manifest still patches crates.io: {documented_source}"
-                )
-            if str(relocated["dependencies"]["sqlx-doris"]["path"]) != str(dependency):
-                raise SystemExit(
-                    f"cannot relocate the documented SDK path in {documented_source}"
-                )
-            documented_directory = run / (label + "-" + language + "-documented-app")
-            (documented_directory / "src").mkdir(parents=True)
-            (documented_directory / "Cargo.toml").write_text(manifest_text + "\n")
-            (documented_directory / "src/main.rs").write_text(documented_rust[1] + "\n")
-            documented_flags = [
-                "--manifest-path",
-                str(documented_directory / "Cargo.toml"),
-            ]
-            command(["cargo", "generate-lockfile", "--offline", *documented_flags])
-            command(["cargo", "check", "--locked", "--offline", *documented_flags])
-            if args.live:
-                documented_env = os.environ.copy()
-                documented_env.update(
-                    MYSQL_URL=documented_env["MYSQL_TEST_URL"],
-                    DORIS_URL=documented_env["DORIS_TEST_URL"],
-                )
-                output.write("$ run the documented main.rs against both databases\n")
-                output.flush()
-                documented_run = subprocess.run(
-                    ["cargo", "run", "--locked", "--offline", *documented_flags],
-                    cwd=project,
-                    env=documented_env,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                )
-                output.write(documented_run.stdout)
-                output.flush()
-                documented_run.check_returncode()
-                for expected in (
-                    "MySql: id=42, name=hello",
-                    "Doris: id=42, name=hello",
-                ):
-                    if expected not in documented_run.stdout.splitlines():
-                        raise SystemExit(
-                            f"documented application output missing: {expected}"
-                        )
-            documented_applications.append(
-                {
-                    "language": language,
-                    "source": str(documented_source),
-                    "source_sha256": hashlib.sha256(
-                        documented_source.read_bytes()
-                    ).hexdigest(),
-                    "compiled": True,
-                    "live": args.live,
-                }
-            )
-
-        metadata = json.loads(
-            subprocess.check_output(
-                [
-                    "cargo",
-                    "metadata",
-                    "--locked",
-                    "--offline",
-                    "--format-version",
-                    "1",
-                    "--filter-platform",
-                    host,
-                    *manifest_flags,
-                ],
-                cwd=project,
+    names = {package["id"]: package["name"] for package in metadata["packages"]}
+    core_features = set().union(
+        *(
+            set(node["features"])
+            for node in metadata["resolve"]["nodes"]
+            if names[node["id"]] == "sqlx-core"
+        )
+    )
+    if "offline" not in core_features:
+        raise SystemExit(f"Executor::describe trait support is missing for {case}")
+    doris_features = set().union(
+        *(
+            set(node["features"])
+            for node in metadata["resolve"]["nodes"]
+            if names[node["id"]] == "sqlx-doris-core"
+        )
+    )
+    expected_features = {
+        "macro-support": "macros" in features,
+        "migrate": is_cli or "migrate" in features,
+        "value-support": bool(
+            set(features).intersection(("operations", "stream-load"))
+        ),
+    }
+    for feature, expected in expected_features.items():
+        if (feature in doris_features) != expected:
+            raise SystemExit(f"Unexpected Doris feature {feature} for {case}")
+    for package, expectations in {
+        "sqlx-doris-cli": {
+            "admin": is_admin,
+            "kafka-admin": "cli-admin-kafka" in features,
+        },
+        "sqlx-doris-ops": {
+            "cli-support": is_cli,
+            "maintenance": is_admin,
+            "kafka": "cli-admin-kafka" in features,
+        },
+    }.items():
+        resolved = set().union(
+            *(
+                set(node["features"])
+                for node in metadata["resolve"]["nodes"]
+                if names[node["id"]] == package
             )
         )
-        mysql = [p for p in metadata["packages"] if p["name"] == "sqlx-mysql"]
-        driver_manifest = (dependency.parent / "sqlx-mysql" / "Cargo.toml").resolve()
-        if len(mysql) != 1 or mysql[0]["version"] != "0.9.0":
-            raise SystemExit(f"duplicate/unexpected sqlx-mysql identity: {mysql}")
-        if Path(mysql[0]["manifest_path"]).resolve() != driver_manifest:
-            raise SystemExit("consumer did not resolve the bundled driver source")
-        if mysql[0]["source"] is not None:
-            raise SystemExit("bundled driver unexpectedly resolved from a registry")
-        (directory / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
-        if args.live:
-            command(["cargo", "run", "--locked", "--offline", *flags])
-    results.append(
-        {
-            "source": str(source),
-            "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
-            "dependency": str(dependency),
-            "sqlx_mysql_manifest": mysql[0]["manifest_path"],
-            "default_features": False,
-            "compiled": True,
-            "documented_manifest_and_main_compiled": True,
-            "documented_application_live": args.live,
-            "documented_applications": documented_applications,
-            "single_native_mysql_identity": True,
-            "root_patch_required": False,
-            "live": "both databases passed" if args.live else "not run",
-            "evidence": str(directory / "check.log"),
-        }
+        for feature, expected in expectations.items():
+            if (feature in resolved) != expected:
+                raise SystemExit(f"Unexpected {package}/{feature} for {case}")
+    feature_results.append(
+        dict(
+            case=case,
+            passed=True,
+            packages=len(packages),
+            sqlx_core_features=sorted(core_features),
+            doris_core_features=sorted(doris_features),
+        )
     )
-    print(f"{label} consumer passed", flush=True)
-(run / "summary.json").write_text(
-    json.dumps(
-        {
-            "bundle_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
-            "target": host,
-            "consumers": results,
-        },
-        indent=2,
-    )
-    + "\n"
+(artifacts / "consumer-feature-summary.json").write_text(
+    json.dumps(feature_results, indent=2) + "\n"
 )
-print(f"Independent consumers verified: {run}")
+# Each internal ops feature must compile independently, without facade feature
+# unification or dev dependencies from the public package hiding missing gates.
+for feature in (None, "helpers", "stream-load", "cli-support", "maintenance", "kafka"):
+    command = [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "-p",
+        "sqlx-doris-ops",
+        "--no-default-features",
+        "--lib",
+    ]
+    if feature:
+        command.extend(["--features", feature])
+    command.extend(["--", "-D", "warnings"])
+    run([command], "ops-feature-" + (feature or "empty") + ".log")
+
+# Cargo may enable an internal dependency's optional components independently
+# of the selected CLI profile. Construction must not require CLI Kafka fields.
+run(
+    [
+        [
+            "cargo",
+            "check",
+            "--locked",
+            "--offline",
+            "-p",
+            "sqlx-doris-cli",
+            "-p",
+            "sqlx-doris-ops",
+            "--features",
+            "sqlx-doris-cli/admin,sqlx-doris-ops/kafka",
+        ],
+    ],
+    "cli-admin-unified-ops-kafka.log",
+)
+
+run(
+    [
+        [
+            "cargo",
+            "clippy",
+            "--offline",
+            "--locked",
+            "-p",
+            "sqlx-doris-macros",
+            "--no-default-features",
+            "--lib",
+            "--",
+            "-D",
+            "warnings",
+        ]
+    ],
+    "macros-feature-empty.log",
+)
+empty_macro_tree = subprocess.check_output(
+    [
+        "cargo",
+        "tree",
+        "--offline",
+        "--locked",
+        "-p",
+        "sqlx-doris-macros",
+        "--no-default-features",
+        "--edges",
+        "normal,build",
+        "--prefix",
+        "none",
+        "--format",
+        "{p}",
+    ],
+    text=True,
+)
+(artifacts / "macros-feature-empty-dependencies.txt").write_text(empty_macro_tree)
+assert {line.split()[0] for line in empty_macro_tree.splitlines() if line} == {
+    "sqlx-doris-macros"
+}, "disabled query macros must not pull the compiler/driver stack"
+
+directory = Path(os.environ["SQLX_DORIS_BUILD_ROOT"]) / "consumer-standalone"
+directory.mkdir(parents=True, exist_ok=True)
+(directory / "src").mkdir(exist_ok=True)
+manifest = f"""[package]
+name = "doris-consumer"
+version = "0.0.0"
+edition = "2024"
+[workspace]
+[dependencies]
+sqlx-doris = {{ path = {json.dumps(str(project / "crates/sqlx-doris"))}, features = ["migrate"] }}
+sqlx = {{ version = "=0.9.0", default-features = false, features = ["derive", "macros", "migrate"] }}
+tokio = {{ version = "1", features = ["macros", "rt-multi-thread"] }}
+"""
+(directory / "Cargo.toml").write_text(manifest)
+(directory / "src/main.rs").write_text(
+    (project / "crates/sqlx-doris/examples/query.rs").read_text()
+)
+prefix = ["cargo", "--offline"]
+manifest_args = ["--manifest-path", str(directory / "Cargo.toml")]
+run([[*prefix, "check", *manifest_args]], "consumer.log")
+# Cargo metadata can include weak optional SQLx dependencies that are never
+# built. Audit the actual normal/build feature graph used by Cargo instead.
+tree = subprocess.check_output(
+    [
+        *prefix,
+        "tree",
+        *manifest_args,
+        "--features",
+        "sqlx-doris/cli-admin-kafka,sqlx-doris/macros,sqlx-doris/stream-load",
+        "--edges",
+        "normal,build",
+        "--prefix",
+        "none",
+        "--format",
+        "{p}",
+    ],
+    text=True,
+    cwd=directory,
+)
+(artifacts / "consumer-dependencies.txt").write_text(tree)
+forbidden = {"sqlx-mysql", "sqlx-doris-mysql", "sqlx-postgres", "sqlx-sqlite"}
+extra = forbidden.intersection(line.split()[0] for line in tree.splitlines() if line)
+if extra:
+    raise SystemExit(f"Unexpected database drivers: {sorted(extra)}")
+# Check the complete Doris feature combination with upstream generic SQLx APIs.
+run(
+    [
+        [
+            *prefix,
+            "check",
+            *manifest_args,
+            "--features",
+            "sqlx-doris/cli-admin-kafka,sqlx-doris/macros,sqlx-doris/stream-load",
+        ]
+    ],
+    "consumer-feature-unification.log",
+)
+if args.live:
+    os.environ["DORIS_URL"] = os.environ["DORIS_TEST_URL"]
+    run([[*prefix, "run", *manifest_args]], "consumer-live.log")

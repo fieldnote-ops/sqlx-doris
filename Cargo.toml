@@ -1,23 +1,19 @@
 [workspace]
-members = ["crates/sqlx-doris", "tests/protocol", "tests/mysql-regression"]
+members = [
+    "crates/sqlx-doris",
+    "crates/sqlx-doris-core",
+    "crates/sqlx-doris-macros",
+    "crates/sqlx-doris-ops",
+    "crates/sqlx-doris-cli",
+]
 default-members = ["crates/sqlx-doris"]
 resolver = "3"
-# The driver is a patched upstream crate: it stays outside workspace lint/format
-# sweeps so its bytes match the reviewed provenance hashes.
-exclude = ["crates/sqlx-mysql", "tests/mysql-upstream"]
-
-# The SDK carries the driver as a path dependency, so applications need no patch.
-# This entry only keeps this workspace's own SQLx-based tests and macro examples on
-# the same native MySql package.
-[patch.crates-io]
-sqlx-mysql = { path = "crates/sqlx-mysql" }
 
 [workspace.package]
 edition = "2024"
 rust-version = "1.94"
 license = "Apache-2.0"
 repository = "https://github.com/fieldnote-ops/sqlx-doris"
-homepage = "https://github.com/fieldnote-ops/sqlx-doris"
 
 [workspace.dependencies]
 bigdecimal = { version = "0.4", features = ["serde"] }
@@ -25,39 +21,11 @@ serde_json = { version = "1", features = ["arbitrary_precision"] }
 serde = { version = "1", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
-
-[workspace.dependencies.sqlx-core]
-version = "=0.9.0"
-default-features = false
-features = [
-    "_rt-tokio",
-    "_tls-rustls-aws-lc-rs",
-    "json",
-    "bigdecimal",
-    "chrono",
-    "migrate",
-]
-
-[workspace.dependencies.sqlx]
-version = "=0.9.0"
-default-features = false
-features = [
-    "mysql",
-    "runtime-tokio",
-    "tls-rustls-aws-lc-rs",
-    "json",
-    "bigdecimal",
-    "chrono",
-    "derive",
-]
-
-[workspace.dependencies.tokio]
-version = "1"
-features = [
-    "macros",
-    "rt-multi-thread",
-    "time",
-    "net",
-    "io-util",
-    "fs",
-]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full", "visit-mut"] }
+# SQLx 0.9 gates the required Executor::describe method behind offline.
+# Keep the trait surface consistent when applications enable upstream macros.
+sqlx-core = { version = "=0.9.0", default-features = false, features = ["_rt-tokio", "_tls-rustls-aws-lc-rs", "json", "bigdecimal", "chrono", "offline"] }
+sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }
+tokio = { version = "1", features = ["time", "net", "io-util", "fs"] }

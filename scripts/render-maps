@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Check or explicitly update the six final user-facing SVG documentation assets."""
+
+import argparse
+import hashlib
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    dev = Path(__file__).resolve().parent / "dev"
+    os.execv(str(dev), [str(dev), sys.executable, "-B", *sys.argv])
+
+parser = argparse.ArgumentParser(description=__doc__)
+mode = parser.add_mutually_exclusive_group(required=True)
+mode.add_argument("--check", action="store_true")
+mode.add_argument("--write", action="store_true")
+arguments = parser.parse_args()
+project = Path(__file__).resolve().parents[1]
+assets = project / "docs/assets"
+digest = hashlib.sha256(
+    (assets / "atlas-data.js").read_bytes() + (assets / "atlas.js").read_bytes()
+).hexdigest()
+program = """
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const [assets, digest, mode] = process.argv.slice(1);
+for (const file of ['atlas-data.js', 'atlas.js']) {
+    vm.runInThisContext(fs.readFileSync(path.join(assets, file), 'utf8'), { filename: file });
+}
+const names = { tasks: 'task-map', integration: 'integration', packages: 'packages' };
+for (const lang of ['en', 'zh']) {
+    for (const [view, name] of Object.entries(names)) {
+        const file = path.join(assets, `${name}${lang === 'zh' ? '.zh-CN' : ''}.svg`);
+        const svg = DORIS_ATLAS.diagrams[view](lang).replace('<svg ',
+            `<svg data-source-sha256="${digest}" data-locale="${lang}" `) + '\\n';
+        if (mode === 'write') fs.writeFileSync(file, svg);
+        else if (!fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== svg) {
+            throw new Error(`Stale diagram: ${file}; run scripts/render-maps --write`);
+        }
+    }
+}
+console.log(`Six paired final SVG assets ${mode === 'write' ? 'updated' : 'match their source'}.`);
+"""
+subprocess.run(
+    [
+        "node",
+        "-e",
+        program,
+        str(assets),
+        digest,
+        "write" if arguments.write else "check",
+    ],
+    check=True,
+)

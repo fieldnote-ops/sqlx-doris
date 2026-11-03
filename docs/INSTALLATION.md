@@ -1,157 +1,132 @@
-# 安装与第一个程序
+<a name="doc-top"></a>
 
-简体中文 | [English](INSTALLATION.en.md)
+# Installation
 
-要求 Rust 1.94+ 和 C 编译工具。业务使用 Cargo 构建，不需要 Python。
-0.1.0 已发布到 crates.io；也可以使用配套包或 GitHub 源码接入。随附驱动已发布为 `sqlx-doris-mysql`，应用不需要根 manifest 的补丁配置。
+[English](INSTALLATION.md) | [简体中文](INSTALLATION.zh-CN.md)
 
-## 1. 准备源码和应用目录
+[Documentation](README.md)
 
-从 crates.io 安装时可以跳过本节，只创建应用目录。需要使用配套包或源码时，先解压/克隆：
+Version **0.2.0 is unreleased**. Use a complete source checkout. Rust 1.94+ and a C toolchain for TLS dependencies are required. Python 3.12+ is needed only for repository tools, not your running application.
 
-```sh
-tar -xzf sqlx-doris-compat-0.1.0.tar.gz
-```
+<a name="doc-contents"></a>
 
-从 GitHub 接入时改为克隆仓库，目录名换成仓库目录：
+## Contents
 
-```sh
-git clone https://github.com/fieldnote-ops/sqlx-doris.git sqlx-doris
-```
+- [Add a source dependency](#doc-source)
+- [Choose features](#doc-features)
+- [Use upstream SQLx](#doc-upstream)
+- [Configure external build storage](#doc-storage)
+- [Connect and configure TLS](#doc-tls)
+- [Install the companion CLI](#doc-cli)
 
-再创建应用目录：
+<a name="doc-source"></a>
 
-```sh
-mkdir -p sdk-demo/src
-```
+## Add a source dependency
 
-最终布局为：
-
-```text
-work/
-  sqlx-doris-compat-0.1.0/
-    crates/sqlx-doris/
-    crates/sqlx-mysql/
-  sdk-demo/
-    Cargo.toml
-    src/main.rs
-```
-
-## 2. 配置 Cargo.toml
-
-把以下内容保存为 sdk-demo/Cargo.toml：
+In your application Cargo.toml, set `path` relative to that manifest, pointing into the complete checkout. The following is the minimal runtime setup with row derives. Do not install 0.2.0 from a public registry before it is released.
 
 ```toml
-[package]
-name = "sdk-demo"
-version = "0.1.0"
-edition = "2024"
-
 [dependencies]
-sqlx-doris = "0.1.0"
 sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }
+sqlx-doris = { path = "../sqlx-doris-clean/crates/sqlx-doris" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-从 crates.io 安装时不需要其他依赖，驱动由 SDK 带入；也不要再单独声明 `sqlx-mysql`。
-使用配套包或源码时，把 `sqlx-doris` 换成 path，例如 `{ path = "../sqlx-doris-compat-0.1.0/crates/sqlx-doris" }`
-或 `{ path = "../sqlx-doris/crates/sqlx-doris" }`；path 相对于 sdk-demo/Cargo.toml，目录不同就调整，不要写成本机固定的绝对路径。
-SDK 通过自身的 path 依赖解析 `crates/sqlx-mysql`，应用同样不需要补丁段。
-已有 Cargo workspace 时，依赖的 path 相对于声明它的 Cargo.toml；使用 workspace.dependencies 时相对于 workspace 根。
-直接声明的 SQLx 只提供 `#[derive(sqlx::FromRow)]` 派生宏，查询函数和池类型从 `sqlx_doris::sqlx` 使用。
-已有 SQLx 依赖时统一到 `=0.9.0`；Tokio 提供异步运行时。
+<a name="doc-features"></a>
 
-## 3. 保存程序
+## Choose features
 
-把以下内容保存为 sdk-demo/src/main.rs：
+Use the [task map](ARCHITECTURE.md#doc-tasks) to choose a path and the [integration lanes](ARCHITECTURE.md#doc-flows) to distinguish compile-time checks from runtime execution.
 
-```rust,no_run
-use sqlx_doris::{
-    Backend, MySqlPool, PoolBuilder,
-    sqlx::query_as,
-};
+| Need | `sqlx-doris` feature | Upstream `sqlx` feature |
+| --- | --- | --- |
+| Runtime queries, pools and Doris types | None | None; `derive` for `FromRow` |
+| Batch ingestion | `stream-load` (includes `operations`) | As required by your query code |
+| Schema/MV/visibility helpers | `operations` | As required by your query code |
+| Checked Doris queries | `macros` | `derive` or `macros`; direct dependency named `sqlx` |
+| Embedded migrations | `migrate` | `macros`, `migrate` |
+| Runtime migration directory | `migrate` | `migrate` |
+| Basic CLI | `cli` (includes `migrate`) | Managed by the CLI |
+| Doris administration | `cli-admin` (includes `cli`) | Managed by the CLI |
+| Independent Kafka preflight | `cli-admin-kafka` (includes `cli-admin`) | Managed by the CLI |
 
-#[derive(Debug, sqlx::FromRow)]
-struct Greeting {
-    id: i64,
-    name: String,
-}
+Default features are empty. JSON, BigDecimal, chrono and Doris logical types are available directly. Internal packages share exact aligned versions; applications declare only `sqlx-doris` as their Doris extension.
 
-async fn greeting(pool: &MySqlPool) -> sqlx_doris::sqlx::Result<Greeting> {
-    query_as("SELECT CAST(? AS SIGNED) AS id, ? AS name")
-        .bind(42_i64)
-        .bind("hello")
-        .fetch_one(pool)
-        .await
-}
+<a name="doc-upstream"></a>
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    for (backend, variable) in [
-        (Backend::MySql, "MYSQL_URL"),
-        (Backend::Doris, "DORIS_URL"),
-    ] {
-        let db = PoolBuilder::new(backend)
-            .connect(&std::env::var(variable)?)
-            .await?;
-        let row = greeting(db.pool()).await?;
-        println!("{backend:?}: id={}, name={}", row.id, row.name);
-        db.close().await;
-    }
-    Ok(())
-}
-```
+## Use upstream SQLx
 
-这段程序不依赖任何表。同一个 greeting 函数接收原生 MySqlPool，在两库绑定参数并映射到同一个结构体。
+Built-in drivers are exported by upstream sqlx through mysql/postgres/sqlite features, sharing generic machinery from sqlx-core. Doris is an external driver: use upstream sqlx::query/query_as, sqlx::Pool<Doris>, sqlx::FromRow and sqlx::migrate::Migrator, importing Doris types and operations from sqlx-doris. Both share the same sqlx-core; this adds no query forwarding or runtime overhead. See the [upstream facade](https://github.com/transact-rs/sqlx/blob/v0.9.0/src/lib.rs).
 
-## 4. 配置连接并运行
+SQLx is not re-exported, and there are no duplicate FromRow/migrate! entry points. Enable upstream sqlx/derive for row derives. Embedded migrations use upstream sqlx/macros + sqlx/migrate and driver sqlx-doris/migrate. Checked Doris queries use sqlx_doris::query! with the driver macros feature and a direct upstream dependency named sqlx, enabling upstream derive or macros for runtime helpers.
 
-先准备可登录的 MySQL 和 Doris 账号。示例 URL 中的 app 是已有数据库名；可以换成自己有权限访问的库。
-如果要新建演示库，可由管理员分别在两库执行：
+Upstream query! and cargo sqlx do not register Doris; use this driver's query macros and cargo sqlx-doris for metadata preparation. Upstream sqlx::migrate! does not require database registration and constructs a Migrator usable with Doris. See the [external-driver FAQ](https://github.com/transact-rs/sqlx/blob/v0.9.0/FAQ.md).
 
-```sql
-CREATE DATABASE IF NOT EXISTS app;
-```
+DorisConnectOptions configures credentials, TLS, statement_cache_capacity (default 100), max_packet_size (default 64 MiB), group_commit, decimal256 and strict_cast. DorisPoolOptions exposes SQLx pool configuration and lifecycle hooks. Use `connect_with(options)` to combine them.
 
-然后进入应用目录：
+TLS defaults to Preferred: encrypt if the FE offers TLS, otherwise use plaintext. Required requires encryption. VerifyCa verifies the certificate chain; VerifyIdentity additionally checks the hostname. Configure a trusted PEM bundle with ssl_ca and mutual TLS with ssl_client_cert/ssl_client_key. Choose verification appropriate to your deployment.
+
+URL scheme: `doris://user:password@fe:9030/database`. URL-encode reserved characters. Supported URL parameters: ssl-mode, ssl-ca, ssl-cert, ssl-key, statement-cache-capacity. Unknown options fail. Authentication supports mysql_native_password.
+
+<a name="doc-storage"></a>
+
+## Configure external build storage
+
+In the application shell, replace the mount placeholder with an existing separately mounted external volume before executing these commands. This environment is also required for direct Cargo builds; the repository wrapper does not configure unrelated application shells.
 
 ```sh
-cd sdk-demo
-export MYSQL_URL='mysql://user:password@mysql-host:3306/app'
-export DORIS_URL='mysql://user:password@doris-fe:9030/app'
-cargo run
+export SQLX_DORIS_EXTERNAL_VOLUME="<absolute-external-mount>"
+export CARGO_TARGET_DIR="$SQLX_DORIS_EXTERNAL_VOLUME/sqlx-doris/app-target"
+export CARGO_BUILD_BUILD_DIR="$CARGO_TARGET_DIR"
+export CARGO_HOME="$SQLX_DORIS_EXTERNAL_VOLUME/sqlx-doris/cargo-home"
+export TMPDIR="$SQLX_DORIS_EXTERNAL_VOLUME/sqlx-doris/tmp-clean"
+export SQLX_OFFLINE_DIR="$SQLX_DORIS_EXTERNAL_VOLUME/sqlx-doris/offline/app"
+mkdir -p "$CARGO_TARGET_DIR" "$CARGO_HOME" "$TMPDIR" "$SQLX_OFFLINE_DIR"
 ```
 
-将占位账号和主机替换为实际连接信息。成功时会看到：
+From the repository root, use `./scripts/dev <command>` instead. It validates the mount and configures build, cache and temporary paths. Before local server startup, audit Docker/Lima disks and every data/log mount; see [Testing](TESTING.md#doc-storage). Migration SQL is application source and may live in `migrations/`.
 
-```text
-MySql: id=42, name=hello
-Doris: id=42, name=hello
+<a name="doc-tls"></a>
+
+## Connect and configure TLS
+
+Set `DORIS_URL` for runtime code and create the target database beforehand. This is an application function; add it to your own program.
+
+```rust
+use sqlx_doris::{DorisConnectOptions, DorisPoolOptions, DorisSslMode};
+
+pub async fn connect() -> sqlx::Result<sqlx_doris::DorisPool> {
+    let options = std::env::var("DORIS_URL")
+        .map_err(|error| sqlx::Error::Configuration(error.into()))?
+        .parse::<DorisConnectOptions>()?
+        .ssl_mode(DorisSslMode::VerifyIdentity)
+        .ssl_ca("certificates/ca.pem")
+        .statement_cache_capacity(100);
+    DorisPoolOptions::new()
+        .max_connections(16)
+        .connect_with(options)
+        .await
+}
 ```
 
-Doris 使用 FE 的 SQL 端口，通常是 9030，URL 仍为 mysql://。
-`Backend::Doris` 启用 Doris 兼容选项；切换库时修改连接配置和后端选择，查询函数可继续复用。
-密码中的 @、/、#、% 等字符需要 URL 编码；不想处理 URL 编码时可用 `MySqlConnectOptions` 设置账号密码，见使用指南。
+TLS defaults to Preferred: use encryption if the FE offers it, otherwise plaintext. Required requires encryption; VerifyCa validates the chain; VerifyIdentity also validates the hostname. `ssl_client_cert`/`ssl_client_key` configure mutual TLS. `DorisPoolOptions` supplies SQLx pool hooks. Options also include `max_packet_size` (64 MiB default), `group_commit`, `decimal256` and `strict_cast`.
 
-## 已有项目接入
+Use `doris://user:password@fe:9030/database` and URL-encode reserved characters. URL parameters are `ssl-mode`, `ssl-ca`, `ssl-cert`, `ssl-key` and `statement-cache-capacity`; unknown parameters fail. Authentication is mysql_native_password.
 
-可以直接借用 `client.pool()`，或用 `client.into_pool()` 取得原生 MySqlPool。
-`Client::from_pool` 只包装现有池，不会补装 Doris 初始化和协议选项；Doris 连接建议从 PoolBuilder 建池。
-业务继续使用 `sqlx_doris::sqlx` 里的 `query`、`.bind()`、`FromRow` 和 `QueryBuilder`，不要混用上游 SQLx 的池类型。
+<a name="doc-cli"></a>
 
-默认启用 HTTP 导入 `stream-load`；只做 SQL 查询可在 sqlx-doris 依赖上设置 `default-features = false`。
-编译期宏（`query!`、`query_as!`）由上游 SQLx 提供，需要自己的 `sqlx` 依赖（`features = ["mysql", "macros"]`），
-并把 `sqlx-mysql` 指向本仓库的 `crates/sqlx-mysql`；普通 query/.bind() 不需要 DATABASE_URL 或离线元数据。
+## Install the companion CLI
 
-## 常见错误
+Run from the complete repository root, not from a standalone .crate archive. Install into the external prefix and add its bin directory to your shell PATH.
 
-| 现象 | 检查 |
-| --- | --- |
-| 找不到本地依赖路径 | 对照目录布局，检查 sdk-demo/Cargo.toml 里的 path |
-| MySqlPool 类型不匹配 | 查询从 `sqlx_doris::sqlx` 取用；用 cargo tree -i sqlx-mysql 确认只有一份驱动 |
-| 启动时报 NotPresent（缺少环境变量） | 在运行程序的同一个 shell 设置对应变量 |
-| 认证失败或数据库不存在 | 检查账号权限、密码编码、库名和 FE SQL 端口 |
-| 编译宏时要求 DATABASE_URL | 编译期宏需要上游 SQLx 宏和连接描述；普通 query 不需要 |
+Choose one installation profile: cli provides prepare/database/ordinary migrate; cli-admin adds Doris maintenance under admin; cli-admin-kafka additionally enables independent read-only Kafka preflight. All profiles install the same executable. Use cargo install --force explicitly when replacing an installed profile. The example installs the basic profile; replace the --features value as needed.
 
-首次解析依赖后可用 `cargo run --locked` 固定应用 Cargo.lock。
-源码示例和完整测试的步骤见[使用指南](USAGE.md)与[测试说明](TESTING.md)。
+```sh
+export SQLX_DORIS_EXTERNAL_VOLUME="<absolute-external-mount>"
+./scripts/dev cargo install --path crates/sqlx-doris --features cli --locked \
+  --root "$SQLX_DORIS_EXTERNAL_VOLUME/sqlx-doris/tools"
+export PATH="$SQLX_DORIS_EXTERNAL_VOLUME/sqlx-doris/tools/bin:$PATH"
+cargo sqlx-doris --help
+```
+
+Use `cargo sqlx-doris`, not the upstream `cargo sqlx`. CLI-only installation does not enable checked queries or Stream Load. See the [CLI reference](CLI.md) and [recovery runbook](RECOVERY.md).

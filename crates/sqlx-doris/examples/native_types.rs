@@ -1,13 +1,14 @@
 //! Create an owned single-replica demo table, round-trip native types, then drop it.
+use sqlx::Executor;
+use sqlx_doris::operations::Result;
 use sqlx_doris::{
-    Backend, Client, PoolBuilder, Result,
+    DorisPool,
     operations::{Column, DataType as T, TableDefinition, TableModel, TableName},
-    sqlx::{self, Executor},
     types::{Array, LargeInt, Map},
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
-async fn round_trip(db: &Client, schema: &TableDefinition) -> Result<()> {
+async fn round_trip(db: &DorisPool, schema: &TableDefinition) -> Result<()> {
     let attrs = Map(vec![
         (1, Array(vec![Some("中文🙂 \" \\ \n \0".to_owned()), None])),
         (2, Array(vec![])),
@@ -19,12 +20,12 @@ async fn round_trip(db: &Client, schema: &TableDefinition) -> Result<()> {
     .bind(1_i64)
     .bind(LargeInt(i128::MAX))
     .bind(&attrs)
-    .execute(db.pool())
+    .execute(db)
     .await?;
     let mut select = schema.select_builder()?;
     select.push(" WHERE id=").push_bind(1_i64);
     let row: (i64, LargeInt, Map<i32, Array<Option<String>>>) =
-        select.build_query_as().fetch_one(db.pool()).await?;
+        select.build_query_as().fetch_one(db).await?;
     assert_eq!(row, (1, LargeInt(i128::MAX), attrs));
     println!("Native types persisted and decoded without loss");
     Ok(())
@@ -32,11 +33,9 @@ async fn round_trip(db: &Client, schema: &TableDefinition) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let db = PoolBuilder::new(Backend::Doris)
-        .connect(&std::env::var("DORIS_URL")?)
-        .await?;
+    let db = DorisPool::connect(&std::env::var("DORIS_URL")?).await?;
     let database: String = sqlx::query_scalar("SELECT DATABASE()")
-        .fetch_one(db.pool())
+        .fetch_one(&db)
         .await?;
     let name = TableName::new(
         database,
@@ -50,14 +49,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .column(Column::new("wide", T::LargeInt))
         .column(Column::new("attrs", T::map(T::Int, T::array(T::String))))
         .replication(1);
-    db.create_table(&schema).await?;
-    let result = round_trip(&db, &schema).await;
-    let cleanup = db
-        .pool()
-        .execute(sqlx::AssertSqlSafe(format!("DROP TABLE {name}")))
-        .await;
+    sqlx_doris::operations::create_table(&db, &schema).await?;
+    if let Err(error) = round_trip(&db, &schema).await {
+        eprintln!("Native-type demo table {name} retained for reconciliation");
+        db.close().await;
+        return Err(error.into());
+    }
+    db.execute(sqlx::AssertSqlSafe(format!("DROP TABLE {name}")))
+        .await?;
     db.close().await;
-    result?;
-    cleanup?;
     Ok(())
 }

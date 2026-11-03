@@ -1,11 +1,12 @@
 #![cfg(feature = "stream-load")]
+use sqlx_doris::operations::Error;
 mod common;
 
+use sqlx::Row;
 use sqlx_doris::{
-    Backend, Error, GroupCommit,
+    GroupCommit,
     operations::{self, Column, DataType as T, TableDefinition, TableModel, TableName},
-    sqlx::{self, Row},
-    stream_load::{LoadFormat, LoadReceipt, LoadState, StreamLoadClient},
+    stream_load::{LabelState, LoadFormat, LoadReceipt, LoadState, StreamLoadClient},
     types::{Array, BigDecimal, LargeInt, Map, Struct, Variant},
 };
 use std::{env, str::FromStr, time::Duration};
@@ -25,14 +26,14 @@ fn http() -> StreamLoadClient {
         Err(_) => client,
     }
 }
-async fn visible(db: &sqlx_doris::Client, table: &TableName, expected: i64) {
+async fn visible(db: &sqlx_doris::DorisPool, table: &TableName, expected: i64) {
     operations::wait_until(
         Duration::from_secs(20),
         Duration::from_millis(50),
         || async {
             let count: i64 =
                 sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {table}")))
-                    .fetch_one(db.pool())
+                    .fetch_one(db)
                     .await?;
             Ok(count == expected)
         },
@@ -60,14 +61,22 @@ fn definition(table: TableName) -> TableDefinition {
 #[tokio::test]
 #[ignore = "requires dedicated Doris SQL and HTTP endpoints"]
 async fn json_load_redirects_to_be_and_duplicate_label_does_not_duplicate_rows() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let table = common::name();
-    db.create_table(&definition(table.clone())).await.unwrap();
+    sqlx_doris::operations::create_table(&db, &definition(table.clone()))
+        .await
+        .unwrap();
     let http = http();
     let label = format!("{}_json", table.table);
     let rows = vec![
-        serde_json::json!({"id":1,"name":"中文🙂 \" \\ \n \0"}),
-        serde_json::json!({"id":2,"name":null}),
+        serde_json::json!({
+            "id": 1,
+            "name": "中文🙂 \" \\ \n \0"
+        }),
+        serde_json::json!({
+            "id": 2,
+            "name": null
+        }),
     ];
     let first = http
         .load(&table)
@@ -83,7 +92,7 @@ async fn json_load_redirects_to_be_and_duplicate_label_does_not_duplicate_rows()
     let actual: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT name FROM {table} WHERE id=1"
     )))
-    .fetch_one(db.pool())
+    .fetch_one(&db)
     .await
     .unwrap();
     assert_eq!(actual.as_deref(), Some("中文🙂 \" \\ \n \0"));
@@ -99,7 +108,46 @@ async fn json_load_redirects_to_be_and_duplicate_label_does_not_duplicate_rows()
         LoadState::AlreadyExists { finished: true }
     );
     assert_eq!(duplicate.redirects, 1);
+    // A duplicate label does not attest equal payloads; the original rows win.
+    let different_payload = http
+        .load(&table)
+        .unwrap()
+        .label(&label)
+        .send_json(&[serde_json::json!({ "id": 99, "name": "different batch" })])
+        .await
+        .unwrap();
+    assert_eq!(
+        different_payload.state(),
+        LoadState::AlreadyExists { finished: true }
+    );
+    let database = table.database.as_deref().unwrap();
+    assert_eq!(
+        http.observe_label(database, &label).await.unwrap().state,
+        LabelState::Visible
+    );
+    assert_eq!(
+        http.observe_label(database, &format!("{}_missing", label))
+            .await
+            .unwrap()
+            .state,
+        LabelState::Unknown
+    );
+    assert!(
+        http.observe_label(
+            &format!("sdk_missing_{}", uuid::Uuid::new_v4().simple()),
+            &label
+        )
+        .await
+        .is_err()
+    );
     visible(&db, &table, 2).await;
+    let ids: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT id FROM {table} ORDER BY id"
+    )))
+    .fetch_all(&db)
+    .await
+    .unwrap();
+    assert_eq!(ids, [1, 2]);
     common::drop_table(&db, &table).await;
     db.close().await;
 }
@@ -107,9 +155,11 @@ async fn json_load_redirects_to_be_and_duplicate_label_does_not_duplicate_rows()
 #[tokio::test]
 #[ignore = "requires dedicated Doris SQL and HTTP endpoints"]
 async fn csv_file_and_json_lines_distinguish_empty_strings_and_nulls() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let table = common::name();
-    db.create_table(&definition(table.clone())).await.unwrap();
+    sqlx_doris::operations::create_table(&db, &definition(table.clone()))
+        .await
+        .unwrap();
     let path = std::env::temp_dir().join(format!("{}.csv", table.table));
     tokio::fs::write(&path, "1,\n2,\\N\n3,中文🙂\n")
         .await
@@ -140,7 +190,7 @@ async fn csv_file_and_json_lines_distinguish_empty_strings_and_nulls() {
     let names: Vec<Option<String>> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT name FROM {table} ORDER BY id"
     )))
-    .fetch_all(db.pool())
+    .fetch_all(&db)
     .await
     .unwrap();
     assert_eq!(
@@ -160,13 +210,21 @@ async fn csv_file_and_json_lines_distinguish_empty_strings_and_nulls() {
 #[tokio::test]
 #[ignore = "requires dedicated Doris SQL and HTTP endpoints"]
 async fn filtered_rows_fail_the_batch_by_default_and_remain_inspectable_when_allowed() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let table = common::name();
-    db.create_table(&definition(table.clone())).await.unwrap();
+    sqlx_doris::operations::create_table(&db, &definition(table.clone()))
+        .await
+        .unwrap();
     let http = http();
     let rows = [
-        serde_json::json!({ "id": 1, "name": "valid" }),
-        serde_json::json!({ "id": "not an integer", "name": "invalid" }),
+        serde_json::json!({
+            "id": 1,
+            "name": "valid"
+        }),
+        serde_json::json!({
+            "id": "not an integer",
+            "name": "invalid"
+        }),
     ];
     let error = http
         .load(&table)
@@ -186,7 +244,7 @@ async fn filtered_rows_fail_the_batch_by_default_and_remain_inspectable_when_all
     let receipt = http
         .load(&table)
         .unwrap()
-        .header("max_filter_ratio", "0.5")
+        .max_filter_ratio(0.5)
         .unwrap()
         .send_json(&rows)
         .await
@@ -204,16 +262,22 @@ async fn filtered_rows_fail_the_batch_by_default_and_remain_inspectable_when_all
 #[tokio::test]
 #[ignore = "requires dedicated Doris SQL and HTTP endpoints"]
 async fn async_group_commit_acknowledges_acceptance_then_becomes_visible() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let table = common::name();
-    db.create_table(&definition(table.clone()).property("group_commit_interval_ms", "1000"))
-        .await
-        .unwrap();
+    sqlx_doris::operations::create_table(
+        &db,
+        &definition(table.clone()).property("group_commit_interval_ms", "1000"),
+    )
+    .await
+    .unwrap();
     let receipt = http()
         .load(&table)
         .unwrap()
         .group_commit(GroupCommit::Async)
-        .send_json(&[serde_json::json!({ "id": 1, "name": "async" })])
+        .send_json(&[serde_json::json!({
+            "id": 1,
+            "name": "async"
+        })])
         .await
         .unwrap();
     assert_eq!(receipt.state(), LoadState::Accepted);
@@ -228,29 +292,28 @@ async fn async_group_commit_acknowledges_acceptance_then_becomes_visible() {
 #[tokio::test]
 #[ignore = "requires dedicated Doris SQL and HTTP endpoints"]
 async fn synchronous_group_commit_http_is_visible_on_return_and_invalid_batch_is_not_written() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let table = common::name();
-    db.create_table(&definition(table.clone()).property("group_commit_interval_ms", "1000"))
-        .await
-        .unwrap();
+    sqlx_doris::operations::create_table(
+        &db,
+        &definition(table.clone()).property("group_commit_interval_ms", "1000"),
+    )
+    .await
+    .unwrap();
     let receipt = http()
         .load(&table)
         .unwrap()
         .group_commit(GroupCommit::Sync)
-        .send_json(&[serde_json::json!({ "id": 1, "name": "sync" })])
+        .send_json(&[serde_json::json!({
+            "id": 1,
+            "name": "sync"
+        })])
         .await
         .unwrap();
     assert_eq!(receipt.state(), LoadState::Visible, "{receipt:?}");
     assert!(receipt.is_visible());
     assert!(receipt.group_commit);
-    assert_eq!(
-        receipt.group_commit_mode.as_deref(),
-        if common::doris_4_0_8() {
-            None
-        } else {
-            Some("sync_mode")
-        }
-    );
+    assert_eq!(receipt.group_commit_mode.as_deref(), Some("sync_mode"));
     assert_eq!(
         receipt.requested_group_commit_mode.as_deref(),
         Some("sync_mode")
@@ -258,7 +321,7 @@ async fn synchronous_group_commit_http_is_visible_on_return_and_invalid_batch_is
     assert_eq!(receipt.redirects, 1);
     let count: i64 =
         sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {table}")))
-            .fetch_one(db.pool())
+            .fetch_one(&db)
             .await
             .unwrap();
     assert_eq!(count, 1, "sync mode must be visible without polling");
@@ -266,13 +329,16 @@ async fn synchronous_group_commit_http_is_visible_on_return_and_invalid_batch_is
         .load(&table)
         .unwrap()
         .group_commit(GroupCommit::Sync)
-        .send_json(&[serde_json::json!({ "id": "bad-integer", "name": "invalid" })])
+        .send_json(&[serde_json::json!({
+            "id": "bad-integer",
+            "name": "invalid"
+        })])
         .await
         .unwrap_err();
     assert!(matches!(error, Error::Load { .. }), "{error:?}");
     let count: i64 =
         sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {table}")))
-            .fetch_one(db.pool())
+            .fetch_one(&db)
             .await
             .unwrap();
     assert_eq!(count, 1);
@@ -283,7 +349,7 @@ async fn synchronous_group_commit_http_is_visible_on_return_and_invalid_batch_is
 #[tokio::test]
 #[ignore = "requires dedicated Doris SQL and HTTP endpoints"]
 async fn partial_update_preserves_other_columns_and_rejects_new_keys_when_requested() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let table = common::name();
     let definition = TableDefinition::new(table.clone(), TableModel::Unique, ["id"])
         .column(Column::new("id", T::BigInt).not_null())
@@ -291,12 +357,18 @@ async fn partial_update_preserves_other_columns_and_rejects_new_keys_when_reques
         .column(Column::new("score", T::Int))
         .replication(1)
         .property("enable_unique_key_merge_on_write", "true");
-    db.create_table(&definition).await.unwrap();
+    sqlx_doris::operations::create_table(&db, &definition)
+        .await
+        .unwrap();
     let http = http();
     let first = http
         .load(&table)
         .unwrap()
-        .send_json(&[serde_json::json!({ "id": 1, "name": "preserved", "score": 10 })])
+        .send_json(&[serde_json::json!({
+            "id": 1,
+            "name": "preserved",
+            "score": 10
+        })])
         .await
         .unwrap();
     committed(&first);
@@ -304,20 +376,22 @@ async fn partial_update_preserves_other_columns_and_rejects_new_keys_when_reques
     let update = http
         .load(&table)
         .unwrap()
-        .header("columns", "id,score")
+        .columns("id,score")
         .unwrap()
-        .header("unique_key_update_mode", "UPDATE_FIXED_COLUMNS")
-        .unwrap()
+        .partial_columns(true)
         .header("partial_update_new_key_behavior", "ERROR")
         .unwrap()
-        .send_json(&[serde_json::json!({ "id": 1, "score": 20 })])
+        .send_json(&[serde_json::json!({
+            "id": 1,
+            "score": 20
+        })])
         .await
         .unwrap();
     committed(&update);
     let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT name,score FROM {table} WHERE id=1"
     )))
-    .fetch_one(db.pool())
+    .fetch_one(&db)
     .await
     .unwrap();
     assert_eq!(row.get::<String, _>("name"), "preserved");
@@ -325,13 +399,16 @@ async fn partial_update_preserves_other_columns_and_rejects_new_keys_when_reques
     let error = http
         .load(&table)
         .unwrap()
-        .header("columns", "id,score")
+        .columns("id,score")
         .unwrap()
         .header("unique_key_update_mode", "UPDATE_FIXED_COLUMNS")
         .unwrap()
         .header("partial_update_new_key_behavior", "ERROR")
         .unwrap()
-        .send_json(&[serde_json::json!({ "id": 2, "score": 30 })])
+        .send_json(&[serde_json::json!({
+            "id": 2,
+            "score": 30
+        })])
         .await
         .unwrap_err();
     assert!(matches!(error, Error::Load { .. }));
@@ -357,7 +434,7 @@ type NativeLoadRow = (
 #[tokio::test]
 #[ignore = "requires dedicated Doris SQL and HTTP endpoints"]
 async fn json_native_types_persist_precision_nested_strings_and_variant_fields() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let table = common::name();
     let definition = TableDefinition::new(table.clone(), TableModel::Unique, ["id"])
         .column(Column::new("id", T::BigInt).not_null())
@@ -377,7 +454,9 @@ async fn json_native_types_persist_precision_nested_strings_and_variant_fields()
         ))
         .column(Column::new("wide", T::LargeInt))
         .replication(1);
-    db.create_table(&definition).await.unwrap();
+    sqlx_doris::operations::create_table(&db, &definition)
+        .await
+        .unwrap();
     let text = "中文🙂 \" \\ \r\n\t\0";
     let amount = "9999999999999999999999999999999999999999999999.123456789012345678901234567890";
     let receipt = http()
@@ -409,7 +488,7 @@ async fn json_native_types_persist_precision_nested_strings_and_variant_fields()
     visible(&db, &table, 2).await;
     let mut select = definition.select_builder().unwrap();
     select.push(" WHERE id=").push_bind(1_i64);
-    let row: NativeLoadRow = select.build_query_as().fetch_one(db.pool()).await.unwrap();
+    let row: NativeLoadRow = select.build_query_as().fetch_one(&db).await.unwrap();
     assert_eq!(
         row,
         (
@@ -428,7 +507,7 @@ async fn json_native_types_persist_precision_nested_strings_and_variant_fields()
     let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT CAST(meta['n'] AS BIGINT) FROM {table} WHERE id=1"
     )))
-    .fetch_one(db.pool())
+    .fetch_one(&db)
     .await
     .unwrap();
     assert_eq!(n, 42);
@@ -436,7 +515,7 @@ async fn json_native_types_persist_precision_nested_strings_and_variant_fields()
         "SELECT COUNT(*) FROM {table} WHERE id=2 AND tags IS NULL AND attrs IS NULL \
         AND record IS NULL AND meta IS NULL AND amount IS NULL AND wide IS NULL"
     )))
-    .fetch_one(db.pool())
+    .fetch_one(&db)
     .await
     .unwrap();
     assert_eq!(nulls, 1);
@@ -447,7 +526,7 @@ async fn json_native_types_persist_precision_nested_strings_and_variant_fields()
 #[tokio::test]
 #[ignore = "requires dedicated Doris endpoints and scripts/prepare-load-fixtures"]
 async fn parquet_and_orc_files_preserve_nulls_unicode_and_control_bytes() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let http = http();
     let fixture_root = std::path::PathBuf::from(
         env::var_os("SQLX_DORIS_BUILD_ROOT").expect("scripts/dev required"),
@@ -474,7 +553,9 @@ async fn parquet_and_orc_files_preserve_nulls_unicode_and_control_bytes() {
         ("sample.orc", LoadFormat::Orc),
     ] {
         let table = common::name();
-        db.create_table(&definition(table.clone())).await.unwrap();
+        sqlx_doris::operations::create_table(&db, &definition(table.clone()))
+            .await
+            .unwrap();
         let receipt = http
             .load(&table)
             .unwrap()
@@ -488,11 +569,80 @@ async fn parquet_and_orc_files_preserve_nulls_unicode_and_control_bytes() {
         let names: Vec<Option<String>> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT name FROM {table} ORDER BY id"
         )))
-        .fetch_all(db.pool())
+        .fetch_all(&db)
         .await
         .unwrap();
         assert_eq!(names, expected, "{file}");
         common::drop_table(&db, &table).await;
     }
+    db.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires dedicated Doris SQL and HTTP endpoints"]
+async fn prepared_label_is_observed_without_committing_and_fixture_abort_is_explicit() {
+    let db = common::client().await;
+    let table = common::name();
+    operations::create_table(&db, &definition(table.clone()))
+        .await
+        .unwrap();
+    let http = http();
+    let request = http
+        .load(&table)
+        .unwrap()
+        .header("two_phase_commit", "true")
+        .unwrap();
+    let label = request.label_ref().unwrap().to_owned();
+    let receipt = request
+        .send_json(&[serde_json::json!({"id": 1, "name": "prepared"})])
+        .await
+        .unwrap();
+    assert_eq!(receipt.state(), LoadState::Prepared);
+    let database = table.database.as_deref().unwrap();
+    assert_eq!(
+        http.observe_label(database, &label).await.unwrap().state,
+        LabelState::Precommitted
+    );
+    visible(&db, &table, 0).await;
+
+    // Fixture coordination only: the public application client has no 2PC abort
+    // workflow. This newly created transaction is owned by this exact test.
+    let txn = receipt
+        .txn_id
+        .filter(|id| *id > 0)
+        .expect("owned positive transaction");
+    let backend = env::var("DORIS_BE_HTTP_URL").expect("dedicated BE HTTP endpoint required");
+    let response: serde_json::Value = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .retry(reqwest::retry::never())
+        .timeout(Duration::from_secs(30))
+        .build()
+        .unwrap()
+        .put(format!(
+            "{}/api/{database}/_stream_load_2pc",
+            backend.trim_end_matches('/')
+        ))
+        .basic_auth(
+            env::var("DORIS_HTTP_USER").unwrap_or_else(|_| "root".into()),
+            env::var("DORIS_HTTP_PASSWORD").ok(),
+        )
+        .header("txn_id", txn)
+        .header("txn_operation", "abort")
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(response["status"], "Success", "{response}");
+    assert_eq!(
+        http.observe_label(database, &label).await.unwrap().state,
+        LabelState::Aborted
+    );
+    visible(&db, &table, 0).await;
+    common::drop_table(&db, &table).await;
     db.close().await;
 }

@@ -1,51 +1,112 @@
+<a name="doc-top"></a>
+
 # sqlx-doris
 
-简体中文 | [English](README.en.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-让 MySQL 和 Apache Doris 共用 Rust SQLx 的查询、参数绑定和结果映射。
-连接时选择后端，业务继续使用原生 `MySqlPool`、`FromRow`、`QueryBuilder` 和 `.bind()`。
-表模型、事务、受影响行数和数据可见性仍按各数据库自身的规则处理。
+A native Apache Doris driver with SQLx queries, exact Doris values, streamed results and optional Stream Load ingestion. Use upstream `sqlx` for generic queries, pools, FromRow and migrations; declare `sqlx-doris` as your sole Doris extension, without internal packages. Checked queries and migration tools are optional; specialist recovery is a separate choice.
 
-0.1.0 已发布到 crates.io：`cargo add sqlx-doris`。源码在 [GitHub](https://github.com/fieldnote-ops/sqlx-doris)。
-已测试 SQLx 0.9.0、MySQL 8.4.13 和官方 Doris 4.1.5；要求 Rust 1.94+。
-随附的 sqlx-mysql 驱动以 `sqlx-doris-mysql` 发布，由 SDK 的依赖重命名引入，应用不需要任何补丁配置。
-接入步骤见[安装指南](docs/INSTALLATION.md)。
+**0.2.0 is unreleased.** Requires Rust 1.94+ and a C toolchain; the verified baseline is Doris 4.1.5 with SQLx 0.9.0. Only Doris is provided; no sqlx-mysql package or driver patch is required.
 
-## 先跑一个查询
+<a name="doc-contents"></a>
 
-在源码根目录运行。需要 Rust/Cargo、C 编译工具和 Python 3.12+，以及可访问的 MySQL、Doris 实例。
-把下面的路径、账号和地址换成自己的配置；URL 中的 app 库需要已存在。
-示例只查询常量，不建表，也不写入数据。
+## Contents
 
-```sh
-export SQLX_DORIS_EXTERNAL_VOLUME="<已挂载构建盘的绝对路径>"
-export MYSQL_URL='mysql://user:password@mysql-host:3306/app'
-export DORIS_URL='mysql://user:password@doris-fe:9030/app'
-./scripts/dev --print-env
-./scripts/dev cargo fetch --locked
-./scripts/dev cargo run --locked -p sqlx-doris --example dual_pool
+- [Run your first query](#doc-quickstart)
+- [Enable only the capabilities you use](#doc-features)
+- [Choose a guide](#doc-guide)
+- [Work on the source checkout](#doc-develop)
+- [License](#doc-license)
+
+<a name="doc-quickstart"></a>
+
+## Run your first query
+
+Use a complete checkout beside your application, adjust the manifest path below, and configure [external build paths](docs/INSTALLATION.md#doc-storage). The target database and account must already exist. This runtime example needs no build-time DATABASE_URL.
+
+```toml
+[dependencies]
+sqlx = { version = "=0.9.0", default-features = false, features = ["derive"] }
+sqlx-doris = { path = "../sqlx-doris-clean/crates/sqlx-doris" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-成功后会输出 `MySQL and Doris returned User { id: 42, ... }`。
-构建、缓存和临时文件写入所选构建盘；盘未挂载时会直接失败。
-Python 只用于源码脚本，使用 SDK 的业务程序不需要 Python。
+Put this complete program in src/main.rs:
 
-## 接入和使用
+```rust
+use sqlx_doris::DorisPool;
+#[derive(Debug, sqlx::FromRow)]
+struct Answer {
+    id: i64,
+    name: String,
+}
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let pool = DorisPool::connect(&std::env::var("DORIS_URL")?).await?;
+    let row: Answer = sqlx::query_as("SELECT CAST(? AS BIGINT) AS id, CAST(? AS STRING) AS name")
+        .bind(42_i64)
+        .bind("Doris 中文🙂")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(row.id, 42);
+    assert_eq!(row.name, "Doris 中文🙂");
+    println!("{row:?}");
+    pool.close().await;
+    Ok(())
+}
+```
 
-- [安装指南](docs/INSTALLATION.md)：源码或配套包安装、完整程序、连接配置和常见错误。
-- [使用指南](docs/USAGE.md)：连接池、事务、Doris 类型、Stream Load 和可运行示例。
-- [兼容范围](docs/COMPATIBILITY.md)：BLOB、TIME、默认值、分页及两库语义差异。
-- [测试说明](docs/TESTING.md)：无数据库检查、双库测试、前提和实际结果。
-- [依赖与许可证](docs/DEPENDENCIES.md)：驱动来源、锁定依赖的安全说明。
+Set DORIS_URL to `doris://user:password@fe:9030/database` and run your application with cargo run. URL-encode reserved characters in credentials/database names.
 
-## 项目背景
+<a name="doc-features"></a>
 
-本项目重构自 2022 年一个 MySQL 与 Doris 混用的 Python 项目。
-部分业务表会随性能优化在两库间调整；当时面向高版本 MySQL 的驱动不兼容 Doris，需要另用支持旧版协议的驱动，换库也会牵动数据访问代码。
+## Enable only the capabilities you use
 
-本库基于 Rust SQLx 集中处理协议与参数绑定差异。
-表换库时，业务侧调整连接配置和后端选择，尽量复用原 SQL、`.bind()` 和结果映射，减少重复适配和维护。表迁移与数据库自身的语义差异仍由业务处理。
+| Need | `sqlx-doris` feature | Upstream `sqlx` feature |
+| --- | --- | --- |
+| Runtime queries, pools and Doris types | None | None; `derive` for `FromRow` |
+| Batch ingestion | `stream-load` (includes `operations`) | As required by your query code |
+| Schema/MV/visibility helpers | `operations` | As required by your query code |
+| Checked Doris queries | `macros` | `derive` or `macros`; direct dependency named `sqlx` |
+| Embedded migrations | `migrate` | `macros`, `migrate` |
+| Runtime migration directory | `migrate` | `migrate` |
+| Basic CLI | `cli` (includes `migrate`) | Managed by the CLI |
+| Doris administration | `cli-admin` (includes `cli`) | Managed by the CLI |
+| Independent Kafka preflight | `cli-admin-kafka` (includes `cli-admin`) | Managed by the CLI |
 
-## 许可证
+Default features are empty. Checked queries use `sqlx_doris::query!`; embedded migration files use upstream `sqlx::migrate!`. See [Installation](docs/INSTALLATION.md#doc-upstream).
 
-SDK 使用 Apache-2.0；随附 sqlx-mysql 保留上游 Apache-2.0 OR MIT 许可，许可证全文随源码和配套包提供。
+<a name="doc-guide"></a>
+
+## Choose a guide
+
+[![Task map: native queries, ingestion, checked SQL, migrations, helpers and diagnosis](docs/assets/task-map.svg)](docs/ARCHITECTURE.md#doc-tasks)
+
+Start with the [task map](docs/ARCHITECTURE.md#doc-tasks), trace [control and execution paths](docs/ARCHITECTURE.md#doc-flows), or explore the [five-package architecture](docs/ARCHITECTURE.md#doc-packages). A local interactive atlas accompanies the static diagrams and text.
+
+- [Installation](docs/INSTALLATION.md): source dependency, features, external paths and TLS.
+- [Everyday queries and types](docs/USAGE.md), [batch ingestion](docs/INGESTION.md) and [troubleshooting](docs/TROUBLESHOOTING.md).
+- [Checked queries and offline builds](docs/USAGE.md#doc-macros), [SQLx migrations](docs/MIGRATIONS.md) and [CLI](docs/CLI.md).
+- Specialist administration: [recovery](docs/RECOVERY.md), [managed Routine Load](docs/ROUTINE_LOAD.md) and [Kafka continuation preflight](docs/KAFKA.md).
+- [Performance](docs/PERFORMANCE.md), [compatibility](docs/COMPATIBILITY.md), [testing](docs/TESTING.md), [dependencies](docs/DEPENDENCIES.md) and [release notes](CHANGELOG.md).
+- [Full documentation and terminology](docs/README.md).
+
+<a name="doc-develop"></a>
+
+## Work on the source checkout
+
+Repository tools require Python 3.12+. From the repository root, use a mounted external physical volume:
+
+```sh
+export SQLX_DORIS_EXTERNAL_VOLUME="<absolute-external-mount>"
+./scripts/dev cargo fetch --locked
+./scripts/dev ./scripts/check
+```
+
+The wrapper keeps target/build, caches, downloads, temporary files and logs external and fails if the volume is unavailable. Docker/Lima disks and server data must also be external before local server startup; see [Testing](docs/TESTING.md).
+
+<a name="doc-license"></a>
+
+## License
+
+Apache-2.0. Dependencies retain their own licenses.

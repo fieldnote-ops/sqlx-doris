@@ -1,198 +1,216 @@
-# 构建与测试
+<a name="doc-top"></a>
 
-简体中文 | [English](TESTING.en.md)
+# Testing
 
-以下命令均在源码根目录执行。业务项目接入见[安装指南](INSTALLATION.md)，不需要先运行整个测试集。
+[English](TESTING.md) | [简体中文](TESTING.zh-CN.md)
 
-## 1. 准备构建环境
+[Documentation](README.md)
 
-需要 Rust 1.94+（含 Cargo、Rustfmt、Clippy）、C 编译工具、Python 3.12+，以及 patch（仅用于重建补丁链）。
-测试脚本适用于 POSIX 环境，工具从 PATH 查找。最低 Rust 版本检查另需 rustup；TLS 测试证书生成另需支持 -addext 的 OpenSSL。
+Source tools require Python 3.12+ and must run through scripts/dev.
 
-先选择已挂载的外置构建盘。可以更改卷内工作目录，代码里没有固定盘符：
+<a name="doc-contents"></a>
+
+## Contents
+
+- [External storage](#doc-storage)
+- [Checks without a database](#doc-checks)
+- [Real Doris contracts](#doc-live)
+- [Coverage and limits](#doc-coverage)
+- [Kafka fault fixtures](#doc-fault-fixtures)
+- [Read-only Kafka preflight](#doc-kafka)
+- [Targeted runs and randomization](#doc-targeted)
+- [Installation acceptance](#doc-installation)
+- [2026-11-02 verification](#doc-record)
+
+<a name="doc-storage"></a>
+
+## External storage
 
 ```sh
-export SQLX_DORIS_EXTERNAL_VOLUME="<已挂载构建盘的绝对路径>"
-export SQLX_DORIS_BUILD_ROOT="$SQLX_DORIS_EXTERNAL_VOLUME/sqlx-doris"
+export SQLX_DORIS_EXTERNAL_VOLUME="<absolute-external-mount>"
 ./scripts/dev --print-env
-```
-
-`dev` 设置 Cargo 缓存、target、临时目录和日志位置。盘未挂载或目录越界时会在写入前失败。
-`.cargo/` 被 Git 忽略，只用于本机配置，不负责设定仓库的构建输出路径。
-
-已有 Black 25.1.0 可直接使用；否则在构建盘上准备 Python 环境：
-
-```sh
-./scripts/dev python3 -m venv "$SQLX_DORIS_BUILD_ROOT/runtime/dev-python"
-./scripts/dev "$SQLX_DORIS_BUILD_ROOT/runtime/dev-python/bin/python" -m pip install \
-  --disable-pip-version-check \
-  --cache-dir "$SQLX_DORIS_BUILD_ROOT/cache/pip" \
-  --index-url https://pypi.org/simple black==25.1.0
-export PATH="$SQLX_DORIS_BUILD_ROOT/runtime/dev-python/bin:$PATH"
-```
-
-准备两套锁定依赖：
-
-```sh
 ./scripts/dev cargo fetch --locked
-./scripts/dev cargo fetch --locked --manifest-path tests/mysql-upstream/Cargo.toml
 ```
 
-第一条用于本项目，第二条用于未打补丁的 SQLx 对照和来源校验。第一次使用新缓存时两条都要执行。
+SQLX_DORIS_BUILD_ROOT selects a directory on that volume. The wrapper verifies the mount, external physical storage on macOS and resolved symlink destinations. CARGO_TARGET_DIR, CARGO_BUILD_BUILD_DIR, CARGO_HOME, TMPDIR, offline caches, downloads, logs and fixtures remain external. Do not override target/build/cache paths to internal storage.
 
-## 2. 不连接数据库的检查
+Before pulling or starting local Doris, inspect Docker/Lima disk locations, Docker's data root and all FE/BE data/log mounts. Named volumes live inside the VM, so its disk must be external. Bind mount source paths must also be external. Never place VM disks, images, server sources or Doris data in this repository.
+
+<a name="doc-checks"></a>
+
+## Checks without a database
+
+scripts/check validates user documentation, formatting, Clippy, unit/protocol/HTTP models, storage rules, empty default features, workspace API documentation, all five packages with all features, eleven isolated consumers and six independent ops feature combinations. Workspace packaging uses a temporary registry for aligned unpublished internal packages. See [Dependencies](DEPENDENCIES.md) for official registry cache preparation in mirror environments.
+
+Ignored live tests in ordinary cargo test mean unexecuted tests.
 
 ```sh
 ./scripts/dev ./scripts/check
-./scripts/dev ./scripts/test-consumer
-```
-
-check 依次执行双语文档、格式检查、Clippy、Python 工具测试、Rust 普通测试、驱动测试、feature 构建、API 文档和打包校验。
-test-consumer 从中英文安装文档中提取完整 Cargo.toml 和 main.rs，在独立应用中编译，检查原生 MySql 类型能否互换，
-并确认依赖图里只有随包提供的一份 sqlx-mysql。
-完整数据库用例此时显示 ignored，表示尚未执行，不算通过。
-
-单独检查格式或最低 Rust 版本：
-
-```sh
-./scripts/dev ./scripts/format --check
 ./scripts/dev ./scripts/test-msrv
+./scripts/dev ./scripts/test-docs
 ```
 
-format 覆盖工作区 Rust、独立 Rust 消费者及 Python 脚本，编辑器缩进遵循 .editorconfig。
-test-msrv 把 Rust 1.94.0 工具链和产物放在构建盘，不修改全局默认版本。
+The documentation gate checks all 21 English/Chinese pairs, stable anchors, same-language navigation, identical code/commands and table numbers. `test-docs` compiles the distinct ordinary Rust examples and checks shell syntax without executing it. To also compile the checked-query example, provide genuine prepared metadata on the external volume: `./scripts/dev ./scripts/test-docs --query-metadata "$SQLX_OFFLINE_DIR"`. The summary explicitly lists metadata-dependent examples not executed by the default check.
 
-## 3. 先运行示例
+<a name="doc-live"></a>
 
-准备好已有数据库和有相应权限的账号，按[使用指南](USAGE.md#运行源码示例)设置 MYSQL_URL、DORIS_URL 及 HTTP 变量。
-三个普通示例可分别运行；五个示例连同在线/离线宏可一次执行：
+## Real Doris contracts
+
+Use a dedicated Doris 4.1.5 instance/database, with CREATE/ALTER/DROP, schema/MV/ingestion permissions and CREATE/DROP DATABASE for isolated migration/CLI fixtures.
 
 ```sh
-export MYSQL_TEST_URL="$MYSQL_URL"
-export DORIS_TEST_URL="$DORIS_URL"
-./scripts/dev ./scripts/test-examples
-```
-
-该命令需要 DORIS_HTTP_URL，BE 地址不可直达时还需 DORIS_BE_HTTP_URL。
-它会创建并删除临时演示表，账号需要建表、写入、查询、删表及导入权限；不需要下节的认证用户和 TLS 故障测试环境。
-
-## 4. 完整双库回归
-
-完整回归会创建/删除表和测试用户，并注入取消、断网等故障，使用专用、可销毁的实例。
-脚本只连接实例，不安装数据库或管理虚拟机。若用容器准备实例，拉取/启动前需确认镜像层、Docker VM 磁盘和数据库卷都在构建盘。
-
-在两库分别建好固定名称的测试库：
-
-```sql
-CREATE DATABASE IF NOT EXISTS sqlx_doris_test;
-```
-
-账号要能建表、建用户和授权。完整套件的 HTTP TLS 代理用 Doris root 空密码账号，只用于隔离测试实例。
-SQL 和 HTTP 端点需要通过本地端口或转发访问，以便测试证书和主机名校验。下面的端口只是原生端口示例，可换成本地转发端口：
-
-```sh
-export MYSQL_TEST_URL='mysql://root@127.0.0.1:3306/sqlx_doris_test'
-export DORIS_TEST_URL='mysql://root@127.0.0.1:9030/sqlx_doris_test'
-export DORIS_HTTP_URL='http://127.0.0.1:8030'
-export DORIS_BE_HTTP_URL='http://127.0.0.1:8040'
-export DORIS_HTTP_USER='root'
-export DORIS_HTTP_PASSWORD=''
-```
-
-完整套件同时需要这四个端点变量；HTTP 账号使用上面设置的 root 空密码。代理仅接受本地 http 地址。
-普通应用和前一节的示例没有这一转发限制，可以按部署使用远端 SQL/HTTPS 地址。
-
-### 准备文件和证书
-
-```sh
-./scripts/dev ./scripts/prepare-load-fixtures
+export DORIS_TEST_URL='doris://root@doris-fe:9030/sqlx_doris_test'
+export DORIS_HTTP_URL='http://doris-fe:8030'
+export DORIS_BE_HTTP_URL='http://doris-be:8040'
+export DORIS_LOAD_FIXTURE_HOST='<host reachable from FE and BE>'
+export DORIS_KAFKA_BROKERS='<dedicated Kafka broker:9092>'
+export DORIS_KAFKA_TOPIC='<dedicated existing topic with partition 0>'
+export DOCKER_HOST='<previously audited external Docker daemon socket>'
+export DORIS_KAFKA_CONTAINER='<dedicated official Kafka container>'
+export DORIS_KAFKA_CONNECTION_FILE="$SQLX_DORIS_EXTERNAL_VOLUME/kafka/ssl.json"
+export DORIS_KAFKA_SASL_CONNECTION_FILE="$SQLX_DORIS_EXTERNAL_VOLUME/kafka/sasl.json"
+export DORIS_KAFKA_FAULT_MANIFEST="$SQLX_DORIS_EXTERNAL_VOLUME/kafka-faults.json"
 ./scripts/dev ./scripts/prepare-test-certificates
-```
-
-前者在外置 Python 环境中安装 PyArrow 22.0.0 并生成 Parquet/ORC；后者用 OpenSSL 生成测试证书。
-输出在 SQLX_DORIS_BUILD_ROOT/fixtures，脚本会打印实际路径。私钥不写入 Git。
-证书只包含 DNS localhost，不包含 IP SAN，供主机名错误用例使用。
-
-把生成的证书复制到两个专用实例的部署目录，并配置 TLS。
-将下面的 <服务端证书目录> 换成服务器上的实际路径：
-
-MySQL 配置中：
-
-```ini
-[mysqld]
-ssl_ca = <服务端证书目录>/ca.pem
-ssl_cert = <服务端证书目录>/server-cert.pem
-ssl_key = <服务端证书目录>/server-key.pem
-```
-
-Doris FE 配置中：
-
-```ini
-enable_ssl = true
-mysql_ssl_default_ca_certificate = <服务端证书目录>/ca_certificate.p12
-mysql_ssl_default_ca_certificate_password = fixture
-mysql_ssl_default_server_certificate = <服务端证书目录>/server_certificate.p12
-mysql_ssl_default_server_certificate_password = fixture
-```
-
-按实例的部署方式重启服务使配置生效。证书脚本本身不修改配置或重启服务。
-SQL 端口要能从 localhost 和 127.0.0.1 访问，HTTP 地址保持上一节的本地 http 端点。
-
-### 执行
-
-```sh
+./scripts/dev ./scripts/prepare-load-fixtures
 ./scripts/dev ./scripts/test-live
-./scripts/dev ./scripts/test-mysql-regression
 ./scripts/dev ./scripts/test-consumer --live
 ```
 
-test-live 串行执行完整数据库测试，再运行五个示例和在线/离线宏。
-test-mysql-regression 用同一组 14 项测试分别对照原版 SQLx 和配套驱动。
-test-consumer --live 验证独立应用的源码/配套包接入和双库调用。
-缺少连接、证书或数据文件时命令会失败，不会跳过后报成功。
+HTTP credentials use DORIS_HTTP_USER/PASSWORD. SQL TLS tests require the dedicated FE to actually set `enable_ssl=true` and load the PKCS12 files generated by prepare-test-certificates (both test passwords are fixture):
 
-## 打包
-
-check 已生成并验证 SDK 和 compat 包。单独重建或复核时：
-
-```sh
-./scripts/dev ./scripts/package-compat
-./scripts/dev ./scripts/verify-delivery
+```properties
+mysql_ssl_default_ca_certificate = <external fixture path inside FE>/ca_certificate.p12
+mysql_ssl_default_ca_certificate_password = fixture
+mysql_ssl_default_server_certificate = <external fixture path inside FE>/server_certificate.p12
+mysql_ssl_default_server_certificate_password = fixture
 ```
 
-它们使用 CARGO_TARGET_DIR/package 中已构建的 SDK .crate；若源码已改，先重新运行 check。
-compat 包内的 SHA256SUMS.json 覆盖所有文件。安装路径见[安装指南](INSTALLATION.md)。
+Copy these into the dedicated FE on the audited external VM and restart that test FE following [Doris SQL TLS configuration](https://doris.apache.org/docs/4.x/admin-manual/auth/certificate/). The certificate contains DNS localhost only: tests verify this hostname and reject the IP address and an incorrect CA. An HTTP proxy cannot substitute for SQL TLS; HTTPS Stream Load tests use a separate local Python proxy. Certificates, proxy logs, Parquet/ORC fixtures and Python dependencies remain external. Missing environment, TLS configuration or fixtures fail. Tests clean up successful fixtures; failures may leave sdk_migrate_/sdk_cli_ databases or randomly named test objects.
 
-## CI 配置
+Contracts cover runtime queries, types/precision, complex/byte bindings, transaction/cancellation/pool recovery, schema/MV helpers, Stream Load and HTTPS. test-live also runs online/offline macro and CLI consumers: six query macros, renamed dependencies, FromRow attributes, negative compilation, no compile-time writes, prepare/--check, lock ownership, checksums/dirty state, async ALTER, cancellation, target versions and single-step revert.
 
-工作流使用 POSIX 自托管 runner，标签为 self-hosted 和 external-storage。
-在仓库或组织 Variables 设置 SQLX_DORIS_EXTERNAL_VOLUME、SQLX_DORIS_BUILD_ROOT，
-并把 runner 工作区、临时目录、工具缓存放在构建盘。工作流在 checkout 前检查这些目录。
-手动开启 live 时，从同名 Secrets 读取四个数据库/HTTP 变量；实例、证书和文件需要事先准备好。
+<a name="doc-coverage"></a>
 
-## 当前验证
+## Coverage and limits
 
-2026-10-30，本版本的测试环境为 macOS ARM64 客户端、MySQL 8.4.13 与官方 Doris 4.1.5。
-测试也检查 Doris 对不支持操作的报错；具体语义见[兼容文档](COMPATIBILITY.md)。
-
-| 检查 | 实际结果 |
+| Area | Contracts |
 | --- | --- |
-| 完整双库 live | 231/231：SDK195 + 协议测试 22 + MySQL 核心 14，失败 0、跳过 0 |
-| 原版 SQLx/配套驱动 MySQL 对照 | 两侧各 14/14；配套驱动这 14 项也包含在 231 项中 |
-| Rust 普通与文档测试 | 29 普通 + 3 doctest 通过；live 的 ignored 不算真库通过 |
-| 配套驱动 | 115/115 |
-| 构建与打包工具测试 | 21/21，覆盖显式构建盘配置、自定义目录、路径越界、包来源、文件内容及 MySQL 执行计数 |
-| Rust 1.94.0 | 普通/文档/驱动测试与最小/全部 feature 构建通过 |
-| fmt/clippy/API 文档 | 通过，clippy 与严格文档检查无警告 |
-| 示例与宏 | 五个示例、双库在线/离线宏通过；缺缓存时报错符合预期 |
-| 独立安装 | 源码和 compat 包实际连接双库，原生类型可互换；依赖图中只有一份 sqlx-mysql |
-| 文档中的完整程序 | 中英文 × 源码/compat 四种组合均使用文档中的 Cargo.toml/main.rs，连接双库并输出 id=42、name=hello |
-| 中英文文档 | 9 组文档的语言切换、本地链接、示例一致性和 40 段 shell 语法通过；示例偏移、失效链接和缺英文文件时明确失败 |
-| 使用指南代码 | MySQL/Doris 建表与事务、Doris TLS 和 JSON 导入连接真库通过 |
-| 源码与配套包 | 原始 SQLx 补丁重建、文件清单和 SDK/驱动配对校验通过 |
-| 统一排版与工作流 | Rustfmt/Black 检查及 actionlint 静态检查通过；没有把静态检查当作远端 CI 执行 |
+| Driver and bindings | SQLx queries/FromRow, precision, Unicode/NUL/bytes, two SQL modes, transactions, cancellation, pools and unique prepared-handle closure. Malformed responses retire connections; writes are never replayed. |
+| Checked macros and cache | Six macros, renamed dependencies, caller paths, outer-join nullability, overrides, negative compilation and no compile-time writes; cross-process locking, corruption repair, staging failure and symlink rejection. |
+| Migrations and recovery | Checksums/dirty state, async ALTER, target/revert, UUID main/transition locks; disconnection, future/process cancellation, repeated recovery, owner changes and late DROP preserve successors/history. A transition gate appearing after main acquisition must cause retirement and retained main ownership on timeout. |
+| Identity and drain | Dedicated credentials, host/grant validation, retirement/reconnect refusal, admitted transactions and COLUMN/ROLLUP/LOAD/MV/Routine observations. Exact transaction abort, TaskId cancellation and UUID STOP require explicit maintenance and a single submission. |
+| Routine and real messages | Receipts/confirmation files, never-reused names, delayed CREATE/STOP and lost ACK; acknowledged Kafka messages, BE-admitted batches, both commit/STOP orders, per-partition cursors and DUPLICATE KEY multiplicities. A privileged name-reuse bypass test demonstrates the protocol limit. |
+| CLI and diagnosis | Human/unified JSON results, stable exits 0/2/3/4/5/6/7, secret suppression and phase precedence. info/diagnose create no tables; independent failures retain partial observations, reason codes and read-only follow-ups. |
+| Packages and features | Five archives, eleven isolated consumers and empty/helpers/stream-load/cli-support/maintenance/kafka ops combinations. Default/migrate-only do not acquire HTTP/CLI, basic CLI does not acquire maintenance HTTP/Kafka, all CLI profiles exclude query macros, and active graphs contain no other database drivers. |
 
-命令日志和 summary.json 保存在 `./scripts/dev --print-env` 显示的 SQLX_DORIS_ARTIFACTS_DIR。
-这 231 项不包含外部 Catalog、Broker、Kafka、多 FE 部署或性能测试。
+Real FE/BE protocol barriers control pre-submission, committed-but-lost ACK and post-ACK verification failures. Already submitted requests may finish after cancellation. Every boundary checks submission counts, connection retirement, locks and dirty history. Owner checkpoints are not atomic business-SQL fences; identity retirement cannot undo commits or prevent admitted transactions/async jobs from completing.
 
-HTTPS/mTLS 客户端和重定向通过本地 TLS 代理连接真库验证，服务器原生 HTTPS 部署需另行验证。
+The LOAD S3 fixture simulates only external file responses; Doris transactions/jobs remain real. Dedicated official Kafka tools produce acks=all messages and verify actual broker offsets; the product Kafka client stays read-only. FE PREPARE alone is insufficient: in-flight tests also require matching JobId/TxnId, positive BeId and valid execution-start time. Resource refusal, missing data, unknown states and unexpected duplicates fail without quota changes. STOP is followed by drain and another multiplicity check. These contracts do not certify production exactly-once, arbitrary restores, multi-FE operation or complete server-side drainage.
+
+<a name="doc-fault-fixtures"></a>
+
+## Kafka fault fixtures
+
+The matrix uses current official Doris 4.1.5 and public tools from official Kafka 4.0.0, without adding a product Kafka client dependency. Keyed producer selection is independently checked against exact per-partition broker high-watermark increments. Evidence records cluster/topic ID, earliest/end, leaders/ISR and exact SQL ID multiplicities on DUPLICATE KEY tables, without claiming end-to-end exactly-once.
+
+Full live tests require two exclusively owned broker-only fault nodes in the dedicated Kafka cluster, separate from the shared controller. Audit external VM disks and every data/config/log volume before setup; do not pull images automatically. Generate a UUID owner per run; both Docker labels sqlx-doris-fixture-owner must match it, names must start sqlx-kafka-matrix-, KAFKA_NODE_ID values must be distinct and greater than 1, and CLUSTER_ID must match the cluster. Mount sqlx-kafka-matrix- named data volumes at /var/lib/kafka/data; other image volumes, including automatically created anonymous volumes, must also use local volumes in the audited external Docker VM. Use the same cached official image.
+
+The dedicated baseline node 1 must provide both broker and controller. Fault nodes use the same static controller quorum and must be broker-only, on the dedicated network with distinct advertised hostnames reachable by Doris and the other brokers. Key official Kafka 4.0.0 image environment is below; substitute each node ID/hostname, mount its exclusive named volume at the data root, and use the image ID bound in the manifest:
+
+```properties
+CLUSTER_ID=<existing cluster ID>
+KAFKA_NODE_ID=<this broker ID greater than 1>
+KAFKA_PROCESS_ROLES=broker
+KAFKA_LISTENERS=PLAINTEXT://:9092
+KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://<this broker hostname>:9092
+KAFKA_CONTROLLER_QUORUM_VOTERS=1@<existing controller hostname>:9093
+KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+KAFKA_LOG_DIRS=/var/lib/kafka/data/kraft-combined-logs
+```
+
+DORIS_KAFKA_FAULT_MANIFEST must be a private external regular file (0600), not a file symlink. Replace the example with actual exclusively owned nodes, never business/shared brokers:
+
+```json
+{
+  "owner": "<32 hex UUID>",
+  "cluster_id": "<actual cluster ID>",
+  "image": "sha256:<actual official image ID>",
+  "nodes": [
+    {"id": "<exact Docker ID>", "node_id": 2, "name": "sqlx-kafka-matrix-<owner>-2"},
+    {"id": "<exact Docker ID>", "node_id": 3, "name": "sqlx-kafka-matrix-<owner>-3"}
+  ]
+}
+```
+
+The tail-regression contract explicitly stops/starts these two nodes, checking exact Docker ID, name, nonce label, node/cluster IDs, image and volumes each time. It never stops the shared controller or relaxes global quotas/Doris isolation. Mutations and record deletion target sdk_rl_matrix_UUID topics only. Success restores both brokers and deletes only its topics; failure preserves evidence without replaying uncertain business actions. Run serially and never share fault nodes with users/production.
+
+```sh
+./scripts/dev cargo test --locked --offline -p sqlx-doris --all-features --test migrate_live kafka_matrix_ -- --ignored --nocapture --test-threads=1
+```
+
+Cases cover independently committed partitions and STOP, commit winning after the final check, loss from a global-maximum offset, replay from stale snapshots, numeric initial cursors without consumption, explicit partition coverage, dynamic BEGINNING versus default END, actual DeleteRecords prefix expiry, same-name topic replacement, and real same-topic-ID end regression/reused offsets via a stopped replica and public unclean election. Discovery cases pause/resume only the same live creator/job to fix discovery ordering; they never hand a STOPPED UUID to a successor.
+
+Evidence JSON/logs remain in external SQLX_DORIS_ARTIFACTS_DIR and contain actual terminal transactions, cursors, broker ranges and exact row multiplicities. Each continuation producer is stopped and drained before checking multiplicities again; a transient matching prefix is insufficient. Resource refusals, missing rows, unexpected duplicates and unknown states fail verification rather than counting as passes.
+
+<a name="doc-kafka"></a>
+
+## Read-only Kafka preflight
+
+SSL and SASL_SSL/PLAIN configurations are private external 0600 regular files; see [Usage](USAGE.md). The client must reach every advertised listener and verify its hostname. Different listeners must address the same cluster/topic; port mappings are not metadata-address rewrites. Contracts cover multiple leaders, added partitions, DeleteRecords prefix expiry, lost epoch anchors, topic replacement and actual tail regression with unchanged topic ID, alongside TLS/SASL failures and unchanged source state. A new post-event baseline cannot prove earlier history. Java tools use 128 MiB heaps; reserve memory for tools, brokers and SSL. OOM fails.
+
+<a name="doc-targeted"></a>
+
+## Targeted runs and randomization
+
+The driver group needs only DORIS_TEST_URL and uses the empty driver feature set. The ingestion group needs SQL/HTTP endpoints plus TLS and file fixtures and enables only stream-load. These scoped checks do not replace the default full release gate, which also requires Kafka/fault fixtures and executes macros, CLI and examples. Summaries retain every executed test name.
+
+```sh
+./scripts/dev ./scripts/test-live --group driver
+./scripts/dev ./scripts/test-live --group ingestion
+./scripts/dev ./scripts/test-macros
+./scripts/dev ./scripts/test-cli
+./scripts/dev ./scripts/test-msrv --macro-consumer
+./scripts/dev cargo test --locked --offline -p sqlx-doris --all-features --test migrate_live transition_ -- --ignored --test-threads=1
+./scripts/dev cargo test --locked --offline -p sqlx-doris --all-features --test migrate_live main_partition -- --ignored --test-threads=1
+./scripts/dev cargo test --locked --offline -p sqlx-doris --all-features --test migrate_live identity::drain -- --ignored --test-threads=1
+./scripts/dev cargo test --locked --offline -p sqlx-doris --all-features --test kafka_preflight_live -- --ignored --test-threads=1
+DORIS_RANDOM_SEED=9417 DORIS_RANDOM_CASES=16384 ./scripts/dev cargo test --locked --offline -p sqlx-doris-core --all-features randomized -- --nocapture
+```
+
+Four randomized contracts directly exercise protocol lengths, row decoding and binding with NULL, numeric/byte values, truncation, malformed packets and Unicode SQL. The default is 4096 cases per group; 64–100000 are configurable. Seeds reproduce failures; corpora/logs stay external. MSRV macro verification requires the external consumer generated by test-macros. Full native tests run serially; ignored tests are not passes.
+
+<a name="doc-installation"></a>
+
+## Installation acceptance
+
+```sh
+./scripts/dev ./scripts/test-install
+# Only reuse five freshly verified, byte-matching archives:
+./scripts/dev ./scripts/test-install --reuse-packages
+```
+
+Separate basic/admin/admin-kafka CLI installations and a fresh application verify generic SQLx, query!, migrate!, existing-table Stream Load, project Cargo configuration, prepare/--check, forced offline rebuild and Doris-only diagnosis without Kafka. Installation acceptance requires the SQL and trusted FE/BE HTTP endpoints above. Temporary external Cargo routing resolves unpublished internal dependencies to five unchanged extracted archives; it modifies neither archives nor upstream SQLx and does not test public-registry publication/download. Failures preserve isolated databases/evidence without automatic recovery or replay; success removes only owned temporary databases.
+
+check.log, live-full.log, live-full-summary.json, native-macro-summary.json, native-cli-summary.json, msrv.log and installation logs remain in external SQLX_DORIS_ARTIFACTS_DIR. Summaries count executed contracts only. Official 4.1.5 is the verified baseline; later releases require semantic revalidation, with no older-version support work. See [Performance](PERFORMANCE.md) for sustained workloads and measurement limits.
+
+<a name="doc-record"></a>
+
+## 2026-11-02 verification
+
+191 Rust unit/protocol/HTTP/doc tests and 20 Python documentation/storage checks passed. Post-fix Doris 4.1.5 / Kafka 4.0.0 acceptance reconciled all 144 native cases against the current test inventory across recorded passing runs and targeted corrections. No cases remain failing or ignored. Ordinary cargo test's 144 ignored cases are unexecuted there and are not passes. Minimal driver and ingestion groups additionally passed 6 and 13 cases; they are not added again to the full-run count.
+
+| Domain | Executed |
+| --- | --- |
+| Driver / values / TLS | 15 |
+| Kafka preflight | 6 |
+| Schema / MV / application helpers | 13 |
+| Migrations / locks | 41 |
+| Identity / drain / Routine / data races / CLI | 56 |
+| Stream Load / HTTPS | 13 |
+
+Three executed examples, 23 macro contracts and 82 CLI contracts passed. 11 distinct Rust guide examples compiled in minimal feature profiles, including genuine metadata for checked queries. All 21 English/Chinese pairs retain matching structure, commands and code.
+
+All-target Clippy, strict rustdoc, Rust 1.94 workspace tests plus an offline renamed consumer, 11 isolated consumers, six independent ops feature combinations and cross-unification passed. Four randomized contracts ran seeds 1/17/9417 at 16384 cases per group. Five fresh aligned source archives matched workspace bytes. Separate cli, cli-admin and cli-admin-kafka installations exercised a fresh application's online queries/macros/migrations/existing-table ingestion, prepare/--check and forced offline rebuild. Public-registry publication/download was not tested.
+
+Raw failures and verification samples remain in the external acceptance directory. Storage errors and resource refusals are failed checks; owned fixture restarts preserve data and the same effective configuration, quotas and mounts. Targeted corrections and previously unexecuted groups are reconciled against the full current native inventory; ignored cases are not counted as passes.

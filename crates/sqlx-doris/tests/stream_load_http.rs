@@ -1,7 +1,8 @@
 #![cfg(feature = "stream-load")]
 
+use sqlx_doris::operations::Error;
 use sqlx_doris::{
-    Error, GroupCommit,
+    GroupCommit,
     operations::TableName,
     stream_load::{LoadFormat, LoadState, StreamLoadClient},
 };
@@ -117,6 +118,72 @@ async fn json_nan_and_infinity_are_rejected_before_transport_for_both_json_paths
             assert!(error.to_string().contains("non-finite"));
         }
     }
+}
+
+#[tokio::test]
+async fn schema_conversion_preserves_duplicate_map_entries() {
+    use sqlx_doris::{
+        operations::{Column, DataType, TableDefinition, TableModel},
+        types::Map,
+    };
+
+    #[derive(serde::Serialize)]
+    struct Row {
+        id: i64,
+        attributes: Map<i64, &'static str>,
+    }
+
+    let server = listener().await;
+    let endpoint = url(&server);
+    let task = tokio::spawn(async move {
+        let (mut socket, _) = server.accept().await.unwrap();
+        let request = read_request(&mut socket).await;
+        respond(&mut socket, "200 OK", "", r#"{"Status":"Success"}"#).await;
+        serde_json::from_slice::<serde_json::Value>(&request.body).unwrap()
+    });
+    let schema = TableDefinition::new(TableName::new("db", "table"), TableModel::Duplicate, ["id"])
+        .column(Column::new("id", DataType::BigInt))
+        .column(Column::new(
+            "attributes",
+            DataType::map(DataType::BigInt, DataType::String),
+        ));
+    client(&endpoint)
+        .load_table(&schema)
+        .unwrap()
+        .send_json(&[Row {
+            id: 1,
+            attributes: Map(vec![(1, "first"), (1, "second")]),
+        }])
+        .await
+        .unwrap();
+    let payload = task.await.unwrap();
+    assert_eq!(payload[0]["attributes"], r#"{"1":"first","1":"second"}"#);
+}
+
+#[tokio::test]
+async fn duplicate_row_fields_are_rejected_before_transport() {
+    use serde::ser::SerializeMap;
+    use sqlx_doris::operations::{Column, DataType, TableDefinition, TableModel};
+    struct Row;
+    impl serde::Serialize for Row {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            let mut map = serializer.serialize_map(Some(2))?;
+            map.serialize_entry("id", &1_i64)?;
+            map.serialize_entry("id", &2_i64)?;
+            map.end()
+        }
+    }
+    let schema = TableDefinition::new(TableName::new("db", "table"), TableModel::Duplicate, ["id"])
+        .column(Column::new("id", DataType::BigInt));
+    let error = client("http://127.0.0.1:1")
+        .load_table(&schema)
+        .unwrap()
+        .send_json(&[Row])
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, Error::InvalidInput(message) if message == "duplicate JSON row field name")
+    );
 }
 
 #[tokio::test]
@@ -285,7 +352,12 @@ async fn lost_response_after_receiving_the_body_is_uncertain_without_write_retry
 
 #[tokio::test]
 async fn group_commit_omits_the_label_and_reports_server_acceptance() {
-    for server_mode in [Some("async_mode"), None, Some("sync_mode")] {
+    for server_mode in [
+        Some("async_mode"),
+        None,
+        Some("sync_mode"),
+        Some("unknown_mode"),
+    ] {
         let server = listener().await;
         let endpoint = url(&server);
         let task = tokio::spawn(async move {
@@ -315,8 +387,10 @@ async fn group_commit_omits_the_label_and_reports_server_acceptance() {
             receipt.state(),
             if server_mode == Some("sync_mode") {
                 LoadState::Visible
-            } else {
+            } else if server_mode == Some("async_mode") {
                 LoadState::Accepted
+            } else {
+                LoadState::Unconfirmed
             }
         );
         assert_eq!(receipt.is_visible(), server_mode == Some("sync_mode"));

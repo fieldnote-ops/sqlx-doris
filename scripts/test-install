@@ -1,0 +1,379 @@
+#!/usr/bin/env python3
+"""Install verified source archives and exercise a fresh SQLx application."""
+import os
+import sys
+from pathlib import Path
+
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    dev = Path(__file__).resolve().parent / "dev"
+    os.execv(str(dev), [str(dev), sys.executable, "-B", *sys.argv])
+from _common import *
+
+import argparse
+import hashlib
+import json
+import tarfile
+import tomllib
+import uuid
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument(
+    "--reuse-packages",
+    action="store_true",
+    help="reuse current verified archives; reject any workspace byte mismatch",
+)
+args = parser.parse_args()
+if not os.environ.get("DORIS_TEST_URL"):
+    parser.error("DORIS_TEST_URL requires a dedicated Doris administrative endpoint")
+for name in ("DORIS_HTTP_URL", "DORIS_BE_HTTP_URL"):
+    if not os.environ.get(name):
+        parser.error(f"{name} is required for installed ingestion acceptance")
+if not args.reuse_packages:
+    run([[sys.executable, "-B", "scripts/test-package"]], "install-packaging.log")
+
+root = Path(os.environ["SQLX_DORIS_BUILD_ROOT"])
+folder = root / "installed-consumers" / uuid.uuid4().hex
+folder.mkdir(parents=True)
+sources = folder / "sources"
+sources.mkdir()
+packages = []
+paths = {}
+for name, metadata in workspace_packages().items():
+    version = metadata["package"]["version"]
+    archive = artifacts / "packages" / f"{name}-{version}.crate"
+    prefix = f"{name}-{version}"
+    with tarfile.open(archive) as bundle:
+        for member in bundle.getmembers():
+            if not member.isfile():
+                continue
+            relative = Path(member.name).relative_to(prefix)
+            if relative.as_posix() in (
+                "Cargo.toml",
+                "Cargo.lock",
+                ".cargo_vcs_info.json",
+            ):
+                continue
+            source = (
+                project
+                / "crates"
+                / name
+                / (
+                    "Cargo.toml"
+                    if relative.as_posix() == "Cargo.toml.orig"
+                    else relative
+                )
+            )
+            if relative.as_posix() == "LICENSE" and not source.exists():
+                source = project / "LICENSE"
+            if (
+                not source.is_file()
+                or source.read_bytes() != bundle.extractfile(member).read()
+            ):
+                raise SystemExit(
+                    f"Stale/mismatched source archive: {name}/{relative}; run test-package"
+                )
+        bundle.extractall(sources, filter="data")
+    paths[name] = sources / prefix
+    packages.append(
+        dict(
+            package=name,
+            version=version,
+            sha256=hashlib.sha256(archive.read_bytes()).hexdigest(),
+        )
+    )
+if len({p["version"] for p in packages}) != 1:
+    raise SystemExit("internal package versions are not aligned")
+version = packages[0]["version"]
+
+# These unreleased archives have no public registry entries yet. Route ONLY
+# the five Doris packages to their unmodified extracted archives in an
+# external test configuration; upstream SQLx and driver features stay untouched.
+config = folder / "cargo-config.toml"
+patch = (
+    "[patch.crates-io]\n"
+    + "\n".join(
+        f"{name} = {{ path = {json.dumps(str(path))} }}" for name, path in paths.items()
+    )
+    + "\n"
+)
+config.write_text(patch)
+env = os.environ.copy()
+installed = {}
+profile_checks = []
+for feature in ("cli", "cli-admin", "cli-admin-kafka"):
+    installation = folder / feature
+    run(
+        [
+            [
+                "cargo",
+                "--config",
+                str(config),
+                "install",
+                "--path",
+                str(paths["sqlx-doris"]),
+                "--root",
+                str(installation),
+                "--locked",
+                "--offline",
+                "--features",
+                feature,
+            ]
+        ],
+        f"install-{feature}.log",
+        env=env,
+        cwd=folder,
+    )
+    binary = installation / "bin/cargo-sqlx-doris"
+    installed[feature] = binary
+    help_text = subprocess.check_output([str(binary), "--help"], text=True, env=env)
+    if "Usage: cargo sqlx-doris" not in help_text or ("  admin " in help_text) != (
+        feature != "cli"
+    ):
+        raise SystemExit(f"Installed {feature} has an inconsistent command surface")
+    version_text = subprocess.check_output(
+        [str(binary), "--version"], text=True, env=env
+    )
+    if version not in version_text:
+        raise SystemExit("installed CLI version differs from the archives")
+    if feature != "cli":
+        admin_help = subprocess.check_output(
+            [str(binary), "admin", "--help"], text=True, env=env
+        )
+        if ("  kafka " in admin_help) != (feature == "cli-admin-kafka"):
+            raise SystemExit("installed admin/Kafka feature isolation failed")
+    profile_checks.append(
+        dict(
+            feature=feature, help=True, version=True, binary_bytes=binary.stat().st_size
+        )
+    )
+cli = installed["cli"]
+
+application = folder / "application"
+(application / "src").mkdir(parents=True)
+(application / ".cargo").mkdir()
+(application / ".cargo/config.toml").write_text(
+    patch
+    + "\n[env]\nSQLX_DORIS_INSTALL_CONFIG = { value = "
+    + json.dumps(folder.name)
+    + ", force = true }\n"
+)
+(application / "build.rs").write_text(
+    """fn main() {
+    assert_eq!(
+        std::env::var("SQLX_DORIS_INSTALL_CONFIG").ok().as_deref(),
+        Some("""
+    + json.dumps(folder.name)
+    + """)
+    );
+    println!("cargo:rerun-if-env-changed=SQLX_DORIS_INSTALL_CONFIG");
+}
+"""
+)
+(application / "migrations").mkdir()
+(application / "migrations/1_items.sql").write_text(
+    "CREATE TABLE items(id BIGINT NOT NULL) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1');\n"
+)
+(application / "Cargo.toml").write_text(
+    f"""[package]
+name = "doris-installed-consumer"
+version = "0.0.0"
+edition = "2024"
+[workspace]
+[dependencies]
+sqlx = {{ version = "=0.9.0", default-features = false, features = ["macros", "migrate"] }}
+sqlx-doris = {{ version = "={version}", features = ["macros", "migrate", "stream-load"] }}
+serde_json = "1"
+tokio = {{ version = "1", features = ["macros", "rt-multi-thread"] }}
+"""
+)
+(application / "src/main.rs").write_text(
+    """use sqlx_doris::{Doris, DorisPool};
+
+#[derive(sqlx::FromRow)]
+struct Item {
+    value: i64,
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let pool = DorisPool::connect(&std::env::var("DORIS_TEST_URL")?).await?;
+    sqlx::migrate!("./migrations").run(&pool).await?;
+    let row = sqlx_doris::query!("SELECT CAST(? AS BIGINT) AS `value!`", 7_i64)
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(row.value, 7);
+    let item = sqlx::query_as::<Doris, Item>("SELECT CAST(? AS BIGINT) AS value")
+        .bind(9_i64)
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(item.value, 9);
+    if std::env::var_os("DORIS_INSTALL_INGEST").is_some() {
+        use sqlx_doris::{operations::TableName, stream_load::StreamLoadClient};
+        let client = StreamLoadClient::new(
+            &std::env::var("DORIS_HTTP_URL")?,
+            std::env::var("DORIS_HTTP_USER").unwrap_or_else(|_| "root".into()),
+            std::env::var("DORIS_HTTP_PASSWORD").ok(),
+        )?.backend_endpoint(&std::env::var("DORIS_BE_HTTP_URL")?)?;
+        let database: String = sqlx::query_scalar("SELECT DATABASE()").fetch_one(&pool).await?;
+        let receipt = client.load(&TableName::new(&database, "items"))?
+            .label(format!("{database}_installed_batch"))
+            .send_json(&[serde_json::json!({"id":42}), serde_json::json!({"id":43})]).await?;
+        assert!(receipt.is_visible(), "{receipt:?}");
+        assert_eq!(receipt.number_loaded_rows, 2);
+        let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM items ORDER BY id").fetch_all(&pool).await?;
+        assert_eq!(ids, [42, 43]);
+    }
+    pool.close().await;
+    println!("installed application passed");
+    Ok(())
+}
+"""
+)
+report = dict(
+    packages=packages,
+    folder=str(folder),
+    completed_steps=[],
+    installed_profiles=profile_checks,
+    passed=False,
+    public_registry_download_tested=False,
+    source_archive_installation=True,
+)
+
+
+def call(*args, expected=0):
+    output = subprocess.run(
+        [str(cli), *map(str, args), "--json"], env=env, capture_output=True, text=True
+    )
+    with (folder / "cli-results.jsonl").open("a") as log:
+        log.write(output.stdout)
+    value = json.loads(output.stdout)
+    if (
+        output.returncode != expected
+        or output.stderr
+        or value["exit_code"] != expected
+        or value["schema"] != "sqlx-doris-cli-result-v1"
+    ):
+        raise SystemExit(f"Installed CLI contract failed; inspect {folder}")
+    return value
+
+
+try:
+    # Round-trip the original URL with the driver's CLI parser; do not print
+    # administrator credentials or include them in command arguments/logs.
+    import urllib.parse
+
+    database = "sdk_install_" + folder.name
+    source_url = urllib.parse.urlsplit(env["DORIS_TEST_URL"])
+    env["DATABASE_URL"] = urllib.parse.urlunsplit(
+        (source_url.scheme, source_url.netloc, "/" + database, source_url.query, "")
+    )
+    env["DORIS_TEST_URL"] = env["DATABASE_URL"]
+    call("database", "create")
+    report["completed_steps"].append("isolated_database_created")
+    call(
+        "--replication-num",
+        "1",
+        "migrate",
+        "--source",
+        application / "migrations",
+        "run",
+    )
+    call("migrate", "--source", application / "migrations", "info")
+    report["completed_steps"].append("basic_cli_database_migrate_and_options")
+    cli = installed["cli-admin"]
+    diagnosis = call(
+        "admin", "diagnose", "--source", application / "migrations", expected=4
+    )
+    if (
+        diagnosis["server_read_only"] is not True
+        or diagnosis["coverage"]["kafka_requested"] is not False
+    ):
+        raise SystemExit(
+            "Doris-only installed diagnosis incorrectly claims Kafka coverage"
+        )
+    report["completed_steps"].append("admin_without_kafka_read_only_diagnosis")
+    cli = installed["cli-admin-kafka"]
+    env["SQLX_OFFLINE"] = "false"
+    env["DORIS_INSTALL_INGEST"] = "1"
+    run(
+        [
+            [
+                "cargo",
+                "run",
+                "--offline",
+                "--manifest-path",
+                str(application / "Cargo.toml"),
+            ]
+        ],
+        "install-consumer-online.log",
+        env=env,
+        cwd=application,
+    )
+    report["completed_steps"].append(
+        "generic_sqlx_checked_query_migrate_and_existing_table_ingestion_online"
+    )
+    env.pop("DORIS_INSTALL_INGEST", None)
+    cache = folder / "offline"
+    call(
+        "prepare",
+        "--manifest-path",
+        application / "Cargo.toml",
+        "--output",
+        cache,
+        "--cargo-offline",
+    )
+    call(
+        "prepare",
+        "--check",
+        "--manifest-path",
+        application / "Cargo.toml",
+        "--output",
+        cache,
+        "--cargo-offline",
+    )
+    report["completed_steps"].append("installed_prepare_and_check")
+    env["SQLX_OFFLINE"] = "true"
+    env["SQLX_OFFLINE_DIR"] = str(cache)
+    env.pop("DATABASE_URL", None)
+    run(
+        [
+            [
+                "cargo",
+                "clean",
+                "--offline",
+                "--manifest-path",
+                str(application / "Cargo.toml"),
+                "-p",
+                "doris-installed-consumer",
+            ],
+            [
+                "cargo",
+                "run",
+                "--locked",
+                "--offline",
+                "--manifest-path",
+                str(application / "Cargo.toml"),
+            ],
+        ],
+        "install-consumer-offline.log",
+        env=env,
+        cwd=application,
+    )
+    report["completed_steps"].append("forced_offline_rebuild_and_run")
+    env["DATABASE_URL"] = env["DORIS_TEST_URL"]
+    diagnosis = call(
+        "admin", "diagnose", "--source", application / "migrations", expected=4
+    )
+    if diagnosis["server_read_only"] is not True or not any(
+        i["code"] == "identity_not_supplied" for i in diagnosis["issues"]
+    ):
+        raise SystemExit("installed diagnostic reason contract failed")
+    report["completed_steps"].append("installed_read_only_diagnosis")
+    call("database", "drop", "--force")
+    report["completed_steps"].append("isolated_database_removed")
+    report["passed"] = True
+finally:
+    (artifacts / "installation-summary.json").write_text(
+        json.dumps(report, indent=2) + "\n"
+    )
+print(f"Source archive installation and fresh application passed: {folder}")

@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""Measure managed UUID Routine Load create/status/preview/stop on real Kafka."""
+import os
+import sys
+from pathlib import Path
+
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    dev = Path(__file__).resolve().parent / "dev"
+    os.execv(str(dev), [str(dev), sys.executable, "-B", *sys.argv])
+from _common import *
+import json
+import re
+import statistics
+import time
+from datetime import datetime, timezone
+from urllib.parse import urlsplit, urlunsplit
+
+url = os.environ.get("DORIS_TEST_URL")
+brokers = os.environ.get("DORIS_KAFKA_BROKERS", "")
+topic = os.environ.get("DORIS_KAFKA_TOPIC", "")
+if (
+    not url
+    or not re.fullmatch(r"[A-Za-z0-9.\-:,]+", brokers)
+    or not re.fullmatch(r"[A-Za-z0-9._\-]+", topic)
+):
+    raise SystemExit(
+        "Dedicated DORIS_TEST_URL, DORIS_KAFKA_BROKERS and DORIS_KAFKA_TOPIC required"
+    )
+run(
+    [
+        [
+            "cargo",
+            "build",
+            "--release",
+            "--locked",
+            "--offline",
+            "-p",
+            "sqlx-doris",
+            "--features",
+            "cli-admin",
+            "--bin",
+            "cargo-sqlx-doris",
+        ]
+    ],
+    "benchmark-routines-build.log",
+)
+cli = Path(os.environ["CARGO_TARGET_DIR"]) / "release/cargo-sqlx-doris"
+root = (
+    Path(os.environ["SQLX_DORIS_BUILD_ROOT"])
+    / "native-routine-benchmark"
+    / str(time.time_ns())
+)
+root.mkdir(parents=True)
+parts = urlsplit(url)
+env = os.environ.copy()
+env["DATABASE_URL"] = urlunsplit(
+    (parts.scheme, parts.netloc, "/sdk_rbench_" + str(time.time_ns()), parts.query, "")
+)
+
+
+def call(*args):
+    start = time.monotonic()
+    p = subprocess.run(
+        [str(cli), "--replication-num", "1", *map(str, args)],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if p.returncode:
+        raise SystemExit(p.stderr)
+    return (time.monotonic() - start) * 1000, p.stdout
+
+
+source = root / "migrations"
+source.mkdir()
+(source / "1_setup.sql").write_text(
+    "CREATE TABLE events(id BIGINT NOT NULL,value STRING) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"
+)
+suffix = root / "kafka.sql"
+suffix.write_text(
+    f"COLUMNS TERMINATED BY ',', COLUMNS(id,value) PROPERTIES('desired_concurrent_number'='1','max_batch_interval'='5') FROM KAFKA('kafka_broker_list'='{brokers}','kafka_topic'='{topic}','kafka_partitions'='0','kafka_offsets'='OFFSET_END')"
+)
+records = []
+completed = False
+print(
+    f"Benchmark database {urlsplit(env['DATABASE_URL']).path[1:]}; artifacts {root}",
+    flush=True,
+)
+call("database", "create")
+try:
+    call("migrate", "--source", source, "run")
+    for trial in range(5):
+        credentials = root / f"{trial}-identity.json"
+        receipt = root / f"{trial}-routine.json"
+        call("admin", "identity", "create", "--output", credentials)
+        name = json.loads(credentials.read_text())["name"]
+        create_ms, output = call(
+            "admin",
+            "routine",
+            "create",
+            "--runner-identity-file",
+            credentials,
+            "--table",
+            "events",
+            "--source",
+            suffix,
+            "--output",
+            receipt,
+            "--managed-namespace",
+            "--json",
+        )
+        job_name = json.loads(receipt.read_text())["job_name"]
+        job_id = str(json.loads(output)["job"]["id"])
+        status_name_ms, _ = call("admin", "routine", "status", "--job-name", job_name)
+        status_ms, _ = call(
+            "admin", "routine", "status", "--receipt", receipt, "--json"
+        )
+        call("admin", "identity", "retire", "--name", name, "--maintenance", "--force")
+        args = (
+            "admin",
+            "routine",
+            "stop",
+            "--receipt",
+            receipt,
+            "--job-id",
+            job_id,
+            "--json",
+        )
+        preview_ms, _ = call(*args)
+        stop_ms, _ = call(*args, "--maintenance", "--managed-namespace", "--force")
+        records.append(
+            dict(
+                trial=trial,
+                create_ms=create_ms,
+                status_ms=status_ms,
+                status_name_ms=status_name_ms,
+                preview_ms=preview_ms,
+                stop_ms=stop_ms,
+            )
+        )
+        credentials.unlink()
+    completed = True
+finally:
+    # Isolated fixture teardown after all acknowledged commands; never remove
+    # production reservations as routine housekeeping.
+    if completed:
+        call("database", "drop", "--force")
+    else:
+        print(
+            "Benchmark failed; fixture/receipts retained for inspection. Do not replay uncertain CREATE/STOP.",
+            file=sys.stderr,
+        )
+summary = dict(
+    measured_at_utc=datetime.now(timezone.utc).isoformat(),
+    records=records,
+    median_ms={
+        key: statistics.median(r[key] for r in records)
+        for key in ("create_ms", "status_ms", "status_name_ms", "preview_ms", "stop_ms")
+    },
+)
+(artifacts / "benchmark-routines.json").write_text(json.dumps(summary, indent=2) + "\n")
+print(json.dumps(summary["median_ms"], indent=2))

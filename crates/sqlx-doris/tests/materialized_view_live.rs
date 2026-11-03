@@ -1,23 +1,22 @@
+use sqlx_doris::operations::Error;
 mod common;
 
 use sqlx_doris::{
-    Backend, Client, Error,
+    DorisPool,
     operations::{MaterializedViewTask, RefreshMode, TableName, TaskStatus},
-    sqlx,
 };
 use std::{collections::HashSet, time::Duration};
 
-async fn execute(db: &Client, sql: String) {
+async fn execute(db: &DorisPool, sql: String) {
     sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
-        .execute(db.pool())
+        .execute(db)
         .await
         .unwrap();
 }
-async fn new_task(db: &Client, view: &TableName, known: &HashSet<i64>) -> MaterializedViewTask {
+async fn new_task(db: &DorisPool, view: &TableName, known: &HashSet<i64>) -> MaterializedViewTask {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
-        if let Some(t) = db
-            .materialized_view_tasks(view)
+        if let Some(t) = sqlx_doris::operations::materialized_view_tasks(db, view)
             .await
             .unwrap()
             .into_iter()
@@ -32,7 +31,7 @@ async fn new_task(db: &Client, view: &TableName, known: &HashSet<i64>) -> Materi
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
-async fn create_base(db: &Client) -> TableName {
+async fn create_base(db: &DorisPool) -> TableName {
     let t = common::name();
     execute(
         db,
@@ -45,7 +44,7 @@ async fn create_base(db: &Client) -> TableName {
     execute(db, format!("INSERT INTO {t} VALUES(1,2),(1,3)")).await;
     t
 }
-async fn create_view(db: &Client, base: &TableName, slow: bool) -> TableName {
+async fn create_view(db: &DorisPool, base: &TableName, slow: bool) -> TableName {
     let mv = common::name();
     let value = if slow {
         "SUM(v)+SUM(SLEEP(IF(id>0,20,0)))"
@@ -63,11 +62,16 @@ async fn create_view(db: &Client, base: &TableName, slow: bool) -> TableName {
     .await;
     mv
 }
-async fn wait(db: &Client, mv: &TableName, id: i64) -> MaterializedViewTask {
-    let result = db
-        .wait_materialized_view_task(mv, id, Duration::from_secs(45), Duration::from_millis(100))
-        .await
-        .unwrap();
+async fn wait(db: &DorisPool, mv: &TableName, id: i64) -> MaterializedViewTask {
+    let result = sqlx_doris::operations::wait_materialized_view_task(
+        db,
+        mv,
+        id,
+        Duration::from_secs(45),
+        Duration::from_millis(100),
+    )
+    .await
+    .unwrap();
     println!("{mv}: {result:?}");
     result
 }
@@ -75,16 +79,21 @@ async fn wait(db: &Client, mv: &TableName, id: i64) -> MaterializedViewTask {
 #[tokio::test]
 #[ignore = "requires Doris"]
 async fn deferred_view_submission_completion_and_stale_data_are_separate_contracts() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let base = create_base(&db).await;
     let mv = create_view(&db, &base, false).await;
-    assert!(db.materialized_view_tasks(&mv).await.unwrap().is_empty());
+    assert!(
+        sqlx_doris::operations::materialized_view_tasks(&db, &mv)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {mv}")))
-        .fetch_one(db.pool())
+        .fetch_one(&db)
         .await
         .unwrap();
     assert_eq!(count, 0);
-    db.refresh_materialized_view(&mv, RefreshMode::Complete)
+    sqlx_doris::operations::refresh_materialized_view(&db, &mv, RefreshMode::Complete)
         .await
         .unwrap();
     let first = new_task(&db, &mv, &HashSet::new()).await;
@@ -92,7 +101,7 @@ async fn deferred_view_submission_completion_and_stale_data_are_separate_contrac
     let value: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT total FROM {mv} WHERE id=1"
     )))
-    .fetch_one(db.pool())
+    .fetch_one(&db)
     .await
     .unwrap();
     assert_eq!(value, 5);
@@ -100,20 +109,19 @@ async fn deferred_view_submission_completion_and_stale_data_are_separate_contrac
     let stale: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT total FROM {mv} WHERE id=1"
     )))
-    .fetch_one(db.pool())
+    .fetch_one(&db)
     .await
     .unwrap();
     assert_eq!(stale, 5);
     // AbstractJob.generateTaskId adds randomness; a later task can have a
     // smaller ID. Compare all IDs observed before this submission instead.
-    let known = db
-        .materialized_view_tasks(&mv)
+    let known = sqlx_doris::operations::materialized_view_tasks(&db, &mv)
         .await
         .unwrap()
         .into_iter()
         .map(|task| task.id)
         .collect();
-    db.refresh_materialized_view(&mv, RefreshMode::Auto)
+    sqlx_doris::operations::refresh_materialized_view(&db, &mv, RefreshMode::Auto)
         .await
         .unwrap();
     let next = new_task(&db, &mv, &known).await;
@@ -121,7 +129,7 @@ async fn deferred_view_submission_completion_and_stale_data_are_separate_contrac
     let fresh: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT total FROM {mv} WHERE id=1"
     )))
-    .fetch_one(db.pool())
+    .fetch_one(&db)
     .await
     .unwrap();
     assert_eq!(fresh, 12);
@@ -133,11 +141,11 @@ async fn deferred_view_submission_completion_and_stale_data_are_separate_contrac
 #[tokio::test]
 #[ignore = "requires Doris"]
 async fn refresh_of_a_view_with_a_missing_base_is_an_observable_failed_task() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let base = create_base(&db).await;
     let mv = create_view(&db, &base, false).await;
     common::drop_table(&db, &base).await;
-    db.refresh_materialized_view(&mv, RefreshMode::Complete)
+    sqlx_doris::operations::refresh_materialized_view(&db, &mv, RefreshMode::Complete)
         .await
         .unwrap();
     let task = new_task(&db, &mv, &HashSet::new()).await;
@@ -151,35 +159,37 @@ async fn refresh_of_a_view_with_a_missing_base_is_an_observable_failed_task() {
 #[tokio::test]
 #[ignore = "requires Doris"]
 async fn client_wait_timeout_does_not_cancel_task_and_explicit_cancel_is_observed() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let base = create_base(&db).await;
     let mv = create_view(&db, &base, true).await;
-    db.refresh_materialized_view(&mv, RefreshMode::Complete)
+    sqlx_doris::operations::refresh_materialized_view(&db, &mv, RefreshMode::Complete)
         .await
         .unwrap();
     let task = new_task(&db, &mv, &HashSet::new()).await;
-    let timeout = db
-        .wait_materialized_view_task(
-            &mv,
-            task.id,
-            Duration::from_millis(20),
-            Duration::from_millis(5),
-        )
-        .await
-        .unwrap_err();
+    let timeout = sqlx_doris::operations::wait_materialized_view_task(
+        &db,
+        &mv,
+        task.id,
+        Duration::from_millis(20),
+        Duration::from_millis(5),
+    )
+    .await
+    .unwrap_err();
     assert!(matches!(timeout, Error::TaskTimeout));
-    let still = db.materialized_view_tasks(&mv).await.unwrap();
+    let still = sqlx_doris::operations::materialized_view_tasks(&db, &mv)
+        .await
+        .unwrap();
     assert!(
         still
             .iter()
             .any(|t| t.id == task.id && !t.status.is_terminal())
     );
-    db.cancel_materialized_view_task(&mv, task.id)
+    sqlx_doris::operations::cancel_materialized_view_task(&db, &mv, task.id)
         .await
         .unwrap();
     assert_eq!(wait(&db, &mv, task.id).await.status, TaskStatus::Canceled);
     let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {mv}")))
-        .fetch_one(db.pool())
+        .fetch_one(&db)
         .await
         .unwrap();
     assert_eq!(n, 0);

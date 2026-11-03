@@ -1,0 +1,380 @@
+#!/usr/bin/env python3
+"""Run Doris CLI migration, recovery and command-line contracts."""
+import os
+import sys
+from pathlib import Path
+
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    dev = Path(__file__).resolve().parent / "dev"
+    os.execv(str(dev), [str(dev), sys.executable, "-B", *sys.argv])
+from _common import *
+import json
+import time
+from urllib.parse import urlsplit, urlunsplit
+
+url = os.environ.get("DORIS_TEST_URL")
+if not url:
+    raise SystemExit("DORIS_TEST_URL is required")
+run(
+    [
+        [
+            "cargo",
+            "build",
+            "--locked",
+            "--offline",
+            "-p",
+            "sqlx-doris",
+            "--features",
+            "cli-admin-kafka",
+            "--bin",
+            "cargo-sqlx-doris",
+        ]
+    ],
+    "cli-build.log",
+)
+cli = str(Path(os.environ["CARGO_TARGET_DIR"]) / "debug/cargo-sqlx-doris")
+directory = (
+    Path(os.environ["SQLX_DORIS_BUILD_ROOT"])
+    / "native-cli-contracts"
+    / str(time.time_ns())
+)
+source = directory / "migrations"
+source.mkdir(parents=True)
+database = "sdk_cli_" + str(time.time_ns())
+parts = urlsplit(url)
+env = os.environ.copy()
+env["DATABASE_URL"] = urlunsplit(
+    (parts.scheme, parts.netloc, "/" + database, parts.query, "")
+)
+results = []
+helper = directory / "fixture"
+(helper / "src").mkdir(parents=True)
+(helper / "Cargo.toml").write_text(
+    f"""[package]
+name = "doris-cli-recovery-fixture"
+version = "0.0.0"
+edition = "2024"
+[workspace]
+[dependencies]
+sqlx-doris = {{ path = {json.dumps(str(project / "crates/sqlx-doris"))} }}
+sqlx = {{ version = "=0.9.0", default-features = false }}
+tokio = {{ version = "1", features = ["macros", "rt-multi-thread"] }}
+"""
+)
+(helper / "src/main.rs").write_text(
+    (project / "tests/fixtures/cli_recovery.rs").read_text()
+)
+run(
+    [["cargo", "build", "--offline", "--manifest-path", str(helper / "Cargo.toml")]],
+    "cli-recovery-fixture-build.log",
+    env,
+)
+fixture_cli = str(
+    Path(os.environ["CARGO_TARGET_DIR"]) / "debug/doris-cli-recovery-fixture"
+)
+
+
+def gate_fixture(name, mode, owner="00000000-0000-4000-8000-000000000001"):
+    run([[fixture_cli, mode, owner]], "cli-fixture-" + name + ".log", env)
+
+
+def transition(owner, lock_owner, *flags):
+    return [
+        "admin",
+        "lock",
+        "recover-transition",
+        "--owner",
+        owner,
+        "--lock-owner",
+        lock_owner,
+        *flags,
+    ]
+
+
+def call(name, args, success=True):
+    process = subprocess.run(
+        [cli, "--replication-num", "1", "--lock-timeout", "0", *args],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    log = artifacts / ("cli-" + name + ".log")
+    log.write_text(process.stdout + process.stderr)
+    if (process.returncode == 0) != success:
+        raise SystemExit(f"Unexpected CLI result for {name}: {log}")
+    results.append(dict(case=name, passed=True, expected_success=success))
+    return process.stdout + process.stderr
+
+
+def repair(*args):
+    return ["admin", "migrate", "--source", str(source), "repair", *args]
+
+
+def migrate(*args):
+    return ["migrate", "--source", str(source), *args]
+
+
+def lock_owner(case):
+    value = json.loads(call(case, ["admin", "lock", "status", "--json"]))
+    return value["locks"]["main_owner"] or "unlocked"
+
+
+created = False
+try:
+    call("help", ["--help"])
+    private_env = env.copy()
+    private_env["DATABASE_URL"] = (
+        "doris://user:never-print-this-password@example.invalid/app"
+    )
+    help_result = subprocess.run(
+        [cli, "--help"], env=private_env, capture_output=True, text=True
+    )
+    assert (
+        help_result.returncode == 0
+        and "never-print-this-password" not in help_result.stdout + help_result.stderr
+    )
+    (artifacts / "cli-help-redaction.log").write_text(
+        help_result.stdout + help_result.stderr
+    )
+    results.append(
+        dict(case="help-redacts-database-url", passed=True, expected_success=True)
+    )
+    dispatch_env = env.copy()
+    dispatch_env["PATH"] = str(Path(cli).parent) + os.pathsep + env["PATH"]
+    dispatch = subprocess.run(
+        ["cargo", "sqlx-doris", "--help"],
+        env=dispatch_env,
+        capture_output=True,
+        text=True,
+    )
+    (artifacts / "cli-cargo-dispatch.log").write_text(dispatch.stdout + dispatch.stderr)
+    assert dispatch.returncode == 0
+    assert "Usage: cargo sqlx-doris" in dispatch.stdout
+    assert "prepare" in dispatch.stdout and "migrate" in dispatch.stdout
+    results.append(dict(case="cargo-subcommand", passed=True, expected_success=True))
+    call("database-create", ["database", "create"])
+    created = True
+    assert "true" in call("database-exists", ["database", "exists"])
+    call("add", migrate("add", "initial", "--reversible"))
+    up = next(source.glob("*.up.sql"))
+    down = next(source.glob("*.down.sql"))
+    up.write_text(
+        "CREATE TABLE events(id BIGINT NOT NULL,value STRING) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1');\nINSERT INTO events VALUES(1,'a;''b');\n"
+    )
+    down.write_text("DROP TABLE events;\n")
+    assert "pending" in call("pending", migrate("info"))
+    call("run", migrate("run"))
+    call("repeat", migrate("run"))
+    assert "applied" in call("applied", migrate("info"))
+    assert "unlocked" in call("lock-released", ["admin", "lock", "status"])
+    initial_version = up.name.split("_", 1)[0]
+    call("add-second", migrate("add", "second", "--reversible"))
+    second = next(p for p in source.glob("*.up.sql") if p != up)
+    second.write_text("SELECT 1;")
+    second.with_name(second.name.replace(".up.sql", ".down.sql")).write_text(
+        "SELECT 2;"
+    )
+    call("run-target", migrate("run", "--target", initial_version))
+    assert "pending second" in call("target-pending", migrate("info"))
+    call("run-second", migrate("run"))
+    call("revert-one", migrate("revert"))
+    info = call("revert-one-info", migrate("info"))
+    assert "applied initial" in info and "pending second" in info
+    call("run-missing-target", migrate("run", "--target", "999"), False)
+    call("revert-missing-target", migrate("revert", "--target", "999"), False)
+    call("revert", migrate("revert", "--target", "0"))
+    assert "pending" in call("reverted", migrate("info"))
+    call("reapply", migrate("run"))
+    hidden = up.with_suffix(".saved")
+    up.rename(hidden)
+    try:
+        assert "applied missing-up-source" in call("missing-up-info", migrate("info"))
+        call("missing-up-run", migrate("run"), False)
+        call("missing-up-revert", migrate("revert"), False)
+        assert "unlocked" in call("missing-up-unlock", ["admin", "lock", "status"])
+    finally:
+        hidden.rename(up)
+    original = up.read_text()
+    up.write_text(original + "SELECT 1;\n")
+    call("checksum", migrate("run"), False)
+    call("revert-checksum", migrate("revert", "--target", "0"), False)
+    assert "checksum-mismatch" in call("checksum-info", migrate("info"))
+    assert "unlocked" in call("checksum-unlock", ["admin", "lock", "status"])
+    up.write_text(original)
+    call("add-dirty", migrate("add", "partial"))
+    dirty = next(p for p in source.glob("*.sql") if p.name.endswith("_partial.sql"))
+    version = dirty.name.split("_", 1)[0]
+    dirty.write_text(
+        "CREATE TABLE partial(id BIGINT) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1'); INSERT INTO partial(missing) VALUES(1);"
+    )
+    call("partial", migrate("run"), False)
+    hidden_dirty = dirty.with_suffix(".saved")
+    dirty.rename(hidden_dirty)
+    try:
+        assert "dirty missing-up-source" in call(
+            "dirty-missing-source-info", migrate("info")
+        )
+    finally:
+        hidden_dirty.rename(dirty)
+    owner = lock_owner("owner")
+    assert owner and owner != "unlocked"
+    call("no-takeover", migrate("run"), False)
+    call(
+        "wrong-owner",
+        ["admin", "lock", "recover", "--owner", "wrong", "--force"],
+        False,
+    )
+    gate = "00000000-0000-4000-8000-000000000001"
+    successor = "00000000-0000-4000-8000-000000000002"
+    assert "--maintenance" in call(
+        "transition-help", ["admin", "lock", "recover-transition", "--help"]
+    )
+    gate_fixture("seed", "seed")
+    assert f"transition-owner {gate}" in call(
+        "transition-status", ["admin", "lock", "status"]
+    )
+    call("transition-no-takeover", migrate("run"), False)
+    call(
+        "transition-main-recovery-blocked",
+        ["admin", "lock", "recover", "--owner", owner, "--force"],
+        False,
+    )
+    assert "Preview only; no changes made" in call(
+        "transition-preview", transition(gate, owner)
+    )
+    call("transition-no-ack", transition(gate, owner, "--force"), False)
+    call("transition-invalid-uuid", transition("invalid", owner), False)
+    call(
+        "transition-wrong-owner",
+        transition(successor, owner, "--maintenance", "--force"),
+        False,
+    )
+    call(
+        "transition-wrong-main",
+        transition(gate, successor, "--maintenance", "--force"),
+        False,
+    )
+    call(
+        "transition-main-not-unlocked",
+        transition(gate, "unlocked", "--maintenance", "--force"),
+        False,
+    )
+    assert "Preview only" in call(
+        "transition-ack-preview", transition(gate, owner, "--maintenance")
+    )
+    assert f"transition-owner {gate}" in call(
+        "transition-preserved-after-previews", ["admin", "lock", "status"]
+    )
+    assert "dirty partial" in call("transition-dirty-before", migrate("info"))
+    assert "main lock and migration records preserved" in call(
+        "transition-remove", transition(gate, owner, "--maintenance", "--force")
+    )
+    assert lock_owner("transition-main-preserved") == owner
+    assert "dirty partial" in call("transition-dirty-preserved", migrate("info"))
+    call(
+        "transition-missing-gate",
+        transition(gate, owner, "--maintenance", "--force"),
+        False,
+    )
+    gate_fixture("successor", "seed", successor)
+    call(
+        "transition-stale-command",
+        transition(gate, owner, "--maintenance", "--force"),
+        False,
+    )
+    assert f"transition-owner {successor}" in call(
+        "transition-successor-preserved", ["admin", "lock", "status"]
+    )
+    call(
+        "transition-remove-successor",
+        transition(successor, owner, "--maintenance", "--force"),
+    )
+    assert "does not stop the previous runner or block reconnects" in call(
+        "recover", ["admin", "lock", "recover", "--owner", owner, "--force"]
+    )
+    assert "partially applied" in call("dirty-blocks", migrate("run"), False)
+    call(
+        "repair",
+        repair("--version", version, "--action", "mark-applied", "--force"),
+    )
+    call("after-repair", migrate("run"))
+    call("add-remove", migrate("add", "remove"))
+    remove = next(p for p in source.glob("*.sql") if p.name.endswith("_remove.sql"))
+    remove_version = remove.name.split("_", 1)[0]
+    remove.write_text("INSERT INTO events(missing) VALUES(1);")
+    call("remove-dirty", migrate("run"), False)
+    owner = lock_owner("remove-owner")
+    call("remove-recover", ["admin", "lock", "recover", "--owner", owner, "--force"])
+    call(
+        "repair-remove",
+        repair("--version", remove_version, "--action", "remove", "--force"),
+    )
+    remove.write_text("SELECT 1;")
+    call("fixed-migration", migrate("run"))
+    call("explicit-serial", ["migrate", "--source", str(source), "--no-lock", "run"])
+    gate_fixture("without-main", "seed")
+    assert "lock-owner unlocked" in call(
+        "transition-unlocked-preview", transition(gate, "unlocked")
+    )
+    call(
+        "transition-expected-main-missing",
+        transition(gate, owner, "--maintenance", "--force"),
+        False,
+    )
+    call(
+        "transition-unlocked-remove",
+        transition(gate, "unlocked", "--maintenance", "--force"),
+    )
+    assert lock_owner("transition-unlocked-final") == "unlocked"
+    gate_fixture("unknown", "unknown")
+    assert "unsupported transition gate format" in call(
+        "transition-unknown-format",
+        transition(gate, "unlocked", "--maintenance", "--force"),
+        False,
+    )
+    gate_fixture("unknown-cleanup", "drop")
+    gate_fixture("legacy", "legacy")
+    status = call("transition-legacy-status", ["admin", "lock", "status"], False)
+    assert "no automatic conversion" in status and "unlocked" not in status
+    assert "no automatic conversion" in call(
+        "transition-legacy-recovery",
+        transition(gate, "unlocked", "--maintenance", "--force"),
+        False,
+    )
+    gate_fixture("legacy-cleanup", "drop")
+    assert lock_owner("transition-legacy-retired") == "unlocked"
+    gate_fixture("main-legacy", "main-legacy")
+    status = call("main-legacy-status", ["admin", "lock", "status"], False)
+    info = json.loads(call("main-legacy-info", [*migrate("info"), "--json"], False))
+    assert info["migration_status"]
+    assert isinstance(info["migrations"]["table_present"], bool)
+
+    assert "unsupported migration lock format" in status and "unlocked" not in status
+    assert "no automatic conversion" in call(
+        "main-legacy-recovery",
+        ["admin", "lock", "recover", "--owner", gate, "--force"],
+        False,
+    )
+    assert "unsupported migration lock format" in call(
+        "main-legacy-run", migrate("run"), False
+    )
+    gate_fixture("main-legacy-cleanup", "main-drop")
+    assert lock_owner("main-legacy-retired") == "unlocked"
+    assert "escapes external volume" in call(
+        "external-cache-gate",
+        [
+            "prepare",
+            "--manifest-path",
+            str(project / "Cargo.toml"),
+            "--output",
+            str(project / "target"),
+        ],
+        False,
+    )
+    assert not (project / "target").exists()
+finally:
+    if created:
+        call("cleanup", ["database", "drop", "--force"])
+
+(artifacts / "native-cli-summary.json").write_text(json.dumps(results, indent=2) + "\n")
+print(f"CLI contracts passed: {len(results)}")

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark light">
+    <meta name="description" content="sqlx-doris 的任务地图、接入路径与五包架构。">
+    <title>sqlx-doris · 架构与使用地图</title>
+    <link rel="stylesheet" href="assets/atlas.css">
+    <script src="assets/atlas-data.js" defer></script>
+    <script src="assets/atlas.js" defer></script>
+</head>
+<body>
+    <a class="skip" href="#workspace">跳到任务地图</a>
+    <div class="shell">
+        <header class="topbar">
+            <a class="brand" href="README.zh-CN.md"><span class="brand-symbol" aria-hidden="true"></span>sqlx-doris <span aria-hidden="true">/</span> atlas</a>
+            <nav class="topnav" aria-label="文档控制">
+                <a href="README.zh-CN.md" class="guide-return">文档首页 ↗</a>
+                <a href="ATLAS.html" data-language lang="en">English</a>
+                <button class="utility" type="button" data-theme-choice>主题：跟随系统</button>
+            </nav>
+        </header>
+        <section class="intro" aria-labelledby="page-title">
+            <div>
+                <p class="eyebrow">DEVELOPER ATLAS / APACHE DORIS</p>
+                <h1 id="page-title">选对路径，看清每一层边界。</h1>
+                <p>从任务出发，定位 API、特性与请求路径；分清编译期检查、应用执行与显式运维控制。</p>
+            </div>
+            <div class="reference"><strong>SQLx 0.9.0 · Doris 4.1.5</strong><br>0.2.0 / 尚未发布<br>参考模型 · 非实时运行状态</div>
+        </section>
+        <div data-loading class="fallback">
+            <p>交互视图需要本地 JavaScript。完整任务链接和静态图仍可在<a href="ARCHITECTURE.zh-CN.md">架构指南</a>与<a href="README.zh-CN.md">文档首页</a>阅读。</p>
+            <img src="assets/task-map.zh-CN.svg" alt="六条任务路径：查询、导入、编译期 SQL、迁移、助手与诊断。">
+        </div>
+        <main id="workspace" class="workspace" data-atlas hidden>
+            <aside class="sidebar" aria-label="选择任务">
+                <p class="section-label">从任务开始</p>
+                <div class="task-list" data-task-list></div>
+                <div class="sidebar-note">先选择任务，再切换视图。小屏可在图框内横向滚动，任务说明保持易读。<a href="ARCHITECTURE.zh-CN.md">阅读完整地图 ↗</a></div>
+            </aside>
+            <div class="content">
+                <div class="tabs" role="tablist" aria-label="地图视图" data-tabs>
+                    <button id="tab-tasks" type="button" role="tab" aria-controls="diagram" aria-selected="true" data-view-choice="tasks"><span>01</span>使用地图</button>
+                    <button id="tab-integration" type="button" role="tab" aria-controls="diagram" aria-selected="false" data-view-choice="integration"><span>02</span>接入与流向</button>
+                    <button id="tab-packages" type="button" role="tab" aria-controls="diagram" aria-selected="false" data-view-choice="packages"><span>03</span>五包架构</button>
+                </div>
+                <div class="diagram-tools"><span>参考路径 · 图下提供任务说明</span><button type="button" data-fit aria-pressed="false" hidden>全图总览</button></div>
+                <section id="diagram" role="tabpanel" aria-labelledby="tab-tasks" tabindex="0">
+                    <div class="canvas-wrap">
+                        <div class="canvas" data-canvas></div>
+                        <p class="canvas-caption"><span>技术参考 / 带方向的关系</span>可使用任务按钮或键盘；图示仅在此框内滚动。</p>
+                    </div>
+                    <p class="topology-note" data-topology-note hidden>保留全部依赖边。高亮仅表达任务上下文，不是 Cargo 已解析依赖图；依赖箭头不表示执行顺序。</p>
+                    <p class="package-detail" role="status" data-package-detail hidden></p>
+                </section>
+                <section class="inspector" aria-labelledby="current-task-title">
+                    <div class="inspector-header">
+                        <span class="current-number" data-current-number></span>
+                        <div><h2 id="current-task-title" tabindex="-1" data-current-title></h2><p data-current-description></p></div>
+                    </div>
+                    <dl class="facts">
+                        <div><dt>公开 API / 命令</dt><dd><code data-current-api></code></dd></div>
+                        <div><dt>Doris 特性</dt><dd><code data-current-feature></code></dd></div>
+                        <div><dt>上游 SQLx</dt><dd data-current-upstream></dd></div>
+                        <div><dt>执行 / 控制路径</dt><dd data-current-flow></dd></div>
+                    </dl>
+                    <p class="boundary"><strong>需要保留的契约</strong><span data-current-boundary></span></p>
+                    <div class="actions">
+                        <div class="guide-links" data-guide-links></div>
+                        <div class="copy-group"><code data-copy-value></code><button type="button" data-copy>复制特性列表</button><span class="copy-feedback" role="status" data-copy-feedback></span></div>
+                    </div>
+                </section>
+            </div>
+            <p class="sr-only" aria-live="polite" aria-atomic="true" data-announcement></p>
+        </main>
+        <footer class="footer"><span>一个 Doris 公开扩展，通用 API 来自上游 SQLx。<br>指南链接打开当前检出目录中对应语言的 Markdown 源文档。</span><span><a href="ARCHITECTURE.zh-CN.md">架构与文字说明</a> · <a href="COMPATIBILITY.zh-CN.md">已验证边界</a><br>本地 SVG / CSS / JavaScript · 无网络依赖</span></footer>
+    </div>
+</body>
+</html>

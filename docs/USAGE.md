@@ -1,172 +1,223 @@
-# 使用指南
+<a name="doc-top"></a>
 
-简体中文 | [English](USAGE.en.md)
+# Queries, types and offline builds
 
-先按[安装指南](INSTALLATION.md)跑通查询。下面的 Rust 函数可放入已有的 Tokio 应用；SQL、HTTP 地址和账号由应用配置。
+[English](USAGE.md) | [简体中文](USAGE.zh-CN.md)
 
-## 连接和连接池
+[Documentation](README.md)
 
-用 `PoolBuilder::new(Backend::MySql)` 或 `PoolBuilder::new(Backend::Doris)` 选择后端，再调用 connect。
-两种后端都使用原生 SQLx MySql 类型，Doris 的 URL 也以 mysql:// 开头。
-池容量和超时可通过 max_connections、acquire_timeout、idle_timeout、max_lifetime 设置。
+Start with the [installation guide](INSTALLATION.md). Use upstream SQLx for generic APIs and this driver for Doris types and checked queries.
 
-需要 TLS 校验时，可以传入原生连接选项：
+<a name="doc-contents"></a>
 
-```rust,no_run
-use sqlx_doris::sqlx::mysql::{MySqlConnectOptions, MySqlSslMode};
-use sqlx_doris::{Backend, Client, PoolBuilder};
-use std::{path::Path, str::FromStr};
+## Contents
 
-pub async fn connect_doris_tls(url: &str, ca_file: &Path) -> sqlx_doris::Result<Client> {
-    let options = MySqlConnectOptions::from_str(url)?
-        .ssl_mode(MySqlSslMode::VerifyIdentity)
-        .ssl_ca(ca_file);
-    PoolBuilder::new(Backend::Doris).connect_with(options).await
-}
-```
+- [Queries and pools](#doc-queries)
+- [Per-connection session settings](#doc-sessions)
+- [Transactions](#doc-transactions)
+- [Types and operations](#doc-types)
+- [Stream Load](#doc-stream-load)
+- [Async MV refresh and observation](#doc-mv)
+- [Checked query macros](#doc-macros)
+- [Prepare and offline builds](#doc-offline)
+- [Error types](#doc-errors)
 
-CA 文件由部署提供，URL 主机名要和证书一致。
-也可以通过 MySqlConnectOptions 的 host、username、password 方法分别设置原始参数，避免手动编码密码。
+<a name="doc-queries"></a>
 
-Doris 默认关闭 Group Commit，并开启严格 CAST 与 Decimal256，可通过 PoolBuilder 修改。
-MySQL 的 TIME 列表兼容默认开启；依赖原生 MySQL 列表类型转换时，设置 mysql_time_membership_compatibility(false)。
-`from_pool` 只包装现有池；`connect_any_with` 只在建池时选择端点，不迁移执行中的查询。
+## Queries and pools
 
-## 查询和参数
+Pass a native `DorisPool` to upstream `sqlx::query`, `query_as`, `query_scalar`, `raw_sql` or `QueryBuilder`. Use `.bind()` for values. Struct mapping uses upstream `#[derive(sqlx::FromRow)]`; tuples work directly. The complete [quickstart](../README.md#doc-quickstart) is ready to copy. SQLx 0.9 dynamic SQL uses `sqlx::AssertSqlSafe`; build identifiers with trusted helpers, never concatenate data.
 
-继续使用 `sqlx_doris::sqlx` 里的 `query`、`query_as`、`query_scalar`、FromRow 和 QueryBuilder。
-值通过 `.bind()` 传入；动态表名、列名等 SQL 结构由应用提供受信任的模板。
-一个占位符对应一个值，Vec 不会自动展开成 IN 列表。
+Each connection caches 100 statements by default. `statement_cache_capacity(0)` disables caching; `persistent(false)` disables it for one execution. `fetch` streams results. `fetch_one`/`fetch_optional` finish the remaining response before reuse; use streaming for large results.
 
-驱动会处理支持范围内的 Doris 预处理限制，调用方仍用原 SQL 和 `.bind()`。
-不支持的 SQL 形状会明确报错。BLOB、TIME、默认值和分页的具体范围见[兼容文档](COMPATIBILITY.md)。
+<a name="doc-sessions"></a>
 
-## 写入事务
+## Per-connection session settings
 
-下面的函数假设已有 sdk_demo_events 表。演示建表 SQL 分别为：
+Use SQLx after_connect to initialize each new physical connection, including pool replacements. No additional client or per-variable options API is needed. This recipe is verified on 4.1.5 and changes sessions, not global policies or quotas.
 
-MySQL：
+```rust
+use sqlx_doris::{DorisPool, DorisPoolOptions};
 
-```sql
-CREATE TABLE sdk_demo_events (
-    id BIGINT NOT NULL PRIMARY KEY,
-    note VARCHAR(128)
-);
-```
-
-Doris：
-
-```sql
-CREATE TABLE sdk_demo_events (
-    id BIGINT NOT NULL,
-    note VARCHAR(128)
-)
-UNIQUE KEY(id)
-DISTRIBUTED BY HASH(id) BUCKETS 1
-PROPERTIES ('replication_num' = '1');
-```
-
-Doris 的单副本配置适用于单 BE 演示，实际部署按集群副本要求调整。
-建好表后，两库可调用同一个函数：
-
-```rust,no_run
-pub async fn insert_event(pool: &sqlx_doris::MySqlPool, id: i64, note: &str) -> sqlx_doris::sqlx::Result<()> {
-    let mut transaction = pool.begin().await?;
-    sqlx_doris::sqlx::query("INSERT INTO sdk_demo_events(id, note) VALUES (?, ?)")
-        .bind(id)
-        .bind(note)
-        .execute(&mut *transaction)
-        .await?;
-    transaction.commit().await?;
-    Ok(())
-}
-```
-
-Doris 写事务的读取放到事务外。savepoint、事务内查询/DDL、跨库事务不在兼容范围内。
-写入或提交丢失回包时，业务需要查询最终状态，不能把所有错误统一重试。
-事务取消或 drop 后，驱动会回滚，或关闭无法安全复用的连接；不会重发不确定的业务写入。
-
-## Doris 类型和操作
-
-`types` 模块包含 LargeInt、BigDecimal、Time、TimestampTz、Array、Map、Struct、Variant、IP 和 Binary/Hex。
-复杂值可用 `operations::push_complex_value` 逐叶绑定，读取时用显式投影保留逻辑类型。
-VARIANT 的归一化、Decimal 舍入和 OLAP 存储类型限制由 Doris 决定。
-
-`operations` 提供 TableDefinition、TableModel、元数据和异步物化视图任务接口。
-建表时显式选择 Doris 表模型；异步操作要继续检查任务状态或数据可见性。
-完整建表和类型往返示例见 [native_types.rs](../crates/sqlx-doris/examples/native_types.rs)。
-
-## Stream Load
-
-默认的 stream-load feature 提供 `stream_load::StreamLoadClient`。
-SQL 连接使用 FE SQL 端口，HTTP 导入使用 FE HTTP 地址；重定向到 BE 后，该地址也必须可达。
-需要覆盖内网 BE 地址时，调用 backend_endpoint。
-
-以下函数向已有表导入 JSON，使用默认 JSON 数组格式，不需要额外的 serde_json 依赖：
-
-```rust,no_run
-use sqlx_doris::{
-    operations::TableName,
-    stream_load::{LoadReceipt, StreamLoadClient},
-};
-
-pub async fn import_events(
-    http: &StreamLoadClient,
-    table: &TableName,
-) -> sqlx_doris::Result<LoadReceipt> {
-    http.load(table)?
-        .send_bytes(br#"[{"id":2,"note":"loaded"}]"#.to_vec())
+pub async fn connect_application(url: &str) -> sqlx::Result<DorisPool> {
+    DorisPoolOptions::new()
+        .max_connections(8)
+        .after_connect(|connection, _| {
+            Box::pin(async move {
+                sqlx::query("SET time_zone = '+00:00'")
+                    .execute(&mut *connection)
+                    .await?;
+                sqlx::query("SET query_timeout = 30")
+                    .execute(&mut *connection)
+                    .await?;
+                sqlx::query("SET workload_group = 'normal'")
+                    .execute(&mut *connection)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(url)
         .await
 }
 ```
 
-StreamLoadClient::new 接收 FE HTTP 地址、账号和可选密码，
-TableName::new 接收库名和表名。完整配置和清理见 [stream_load.rs](../crates/sqlx-doris/examples/stream_load.rs)。
-复杂的 ARRAY/MAP/STRUCT 列使用 `load_table(&TableDefinition).send_json(...)`，由表定义指导编码；
-普通 load(table).send_bytes() 按原始数据上传。
+normal is the existing group used by this example; select an authorized group for your application. Do not interpolate untrusted group names/settings into SQL. query_timeout controls server SQL execution, not pool queueing, network time or the entire application operation. Existing DorisConnectOptions.group_commit, decimal256 and strict_cast still configure their dedicated connection settings. See [Doris workload groups](https://doris.apache.org/docs/4.x/key-features/workload-group/).
 
-返回后检查 LoadReceipt::state() 和 is_visible()：接受请求、提交和可见是不同状态。
-重复 Label、过滤行、Publish Timeout、2PC Prepared 需要分别处理；Prepared 的后续提交/回滚由调用方显式执行。
-HTTPS 或 mTLS 使用 with_client_builder 配置自有 CA/证书，校验失败不会降级为明文。
+<a name="doc-transactions"></a>
 
-## 运行源码示例
+## Transactions
 
-在源码根目录先配置构建盘和连接变量，配置方式见[README](../README.md#先跑一个查询)。
+Begin with pool.begin(), execute queries on `&mut *tx`, then commit() or rollback(). Doris supports top-level write transactions, with no savepoints, nested transactions or custom BEGIN. Typed bindings inside transactions use validated public text-protocol commands. Ordinary queries prefer cached binary statements.
 
-| 示例 | 额外前提 | 命令 |
+Dropping a transaction closes its connection; Doris handles disconnect rollback. Cancellation, unread streams and uncertain completion retire connections. Pools replace them automatically. Do not replay uncertain writes; reconcile using application identifiers. DorisConnectOptions.group_commit(GroupCommit::Sync/Async/Off) applies to each new SQL connection. Async Group Commit acknowledgement does not guarantee query visibility. operations::wait_until polls reads without resubmitting writes.
+
+This function assumes an existing events table:
+
+```rust
+pub async fn insert_event(pool: &sqlx_doris::DorisPool) -> sqlx::Result<()> {
+    let mut transaction = pool.begin().await?;
+    sqlx::query("INSERT INTO events(id, name) VALUES (?, ?)")
+        .bind(1_i64)
+        .bind("Doris")
+        .execute(&mut *transaction)
+        .await?;
+    transaction.commit().await
+}
+```
+
+<a name="doc-types"></a>
+
+## Types and operations
+
+Doris adapters include LargeInt, Time, BigDecimal, TimestampTz, Ipv4/Ipv6, Binary/Hex, Array, Map, Struct and Variant. Time is a signed duration supporting ±838:59:59.999999. Unsupported precision is rejected. For arbitrary strings in complex values, use operations::push_complex_value and project.
+
+| Doris type | Rust type | Everyday constraint |
 | --- | --- | --- |
-| dual_pool | 两库可以执行 SELECT，不建表 | ./scripts/dev cargo run --locked -p sqlx-doris --example dual_pool |
-| native_types | DORIS_URL 指向已有库，账号可建表、写入、查询和删表 | ./scripts/dev cargo run --locked -p sqlx-doris --example native_types |
-| stream_load | 同上，另设 HTTP 端点和导入账号 | ./scripts/dev cargo run --locked -p sqlx-doris --example stream_load |
+| BOOLEAN / integers | bool; i8/i16/i32/i64 | Range-checked; ambiguous expression metadata may need CAST/overrides |
+| LARGEINT | sqlx_doris::types::LargeInt | Signed i128; never pass through floating point |
+| DECIMAL / DECIMAL256 | sqlx_doris::types::BigDecimal | Preserve decimal text and server-supported precision/scale |
+| DATE / DATETIME | chrono::NaiveDate / NaiveDateTime | No time-zone identity; reject unsupported submicrosecond precision |
+| TIMESTAMPTZ | sqlx_doris::types::TimestampTz | DateTime<FixedOffset>; session time zone affects presentation |
+| TIME | sqlx_doris::types::Time | Signed duration ±838:59:59.999999; not an OLAP column type |
+| IPv4 / IPv6 | sqlx_doris::types::Ipv4 / Ipv6 | Explicit adapters around std::net addresses |
+| Binary | sqlx_doris::types::Binary / Hex | Bind Hex to explicit UNHEX(?) where needed |
+| ARRAY / MAP / STRUCT | sqlx_doris::types::Array / Map / Struct | Complex string reads may require operations::project |
+| JSON / VARIANT | sqlx::types::Json / sqlx_doris::types::Variant | Keep documented scalar-root and large-number server limits |
+| NULL | Option<T> | Choose T from the logical result; do not force macro non-null without proof |
 
-native_types 和 stream_load 创建随机后缀的演示表，正常结束时删除。
-运行 stream_load 前设置：
+Declare chrono and serde_json as application dependencies when using their names. Import BigDecimal and Doris adapters directly from sqlx_doris::types. See [ingestion](INGESTION.md#doc-choose) for table-model versus label deduplication; neither proves network exactly-once.
 
-```sh
-export DORIS_HTTP_URL='http://doris-fe:8030'
-export DORIS_HTTP_USER='user'
-export DORIS_HTTP_PASSWORD='password'
-# BE 返回的地址不可直达时才设置：
-export DORIS_BE_HTTP_URL='http://doris-be:8040'
-./scripts/dev cargo run --locked -p sqlx-doris --example stream_load
-```
+Schema helpers include TableName, TableDefinition, Column, DataType and Duplicate/Unique/Aggregate models. Enable `operations` and pass `&DorisPool` directly to free functions such as `create_table`, `describe_table` and MV helpers; no client wrapper is needed. Server table-model, affected-row and visibility semantics remain Doris's.
 
-这些变量分别是 FE HTTP、HTTP 账号密码和可选的 BE HTTP 地址，不能填成 SQL 端口。
-
-## 编译期宏
-
-编译期宏 `query!`、`query_as!` 来自上游 SQLx：应用需要自己的 `sqlx` 依赖（`features = ["mysql", "macros"]`），
-并把 `sqlx-mysql` 指向本仓库的 `crates/sqlx-mysql`，宏展开成 `::sqlx::` 路径时才与本包的池类型一致。
-只做普通 query/.bind() 时不涉及这些配置。
-编译时用 DATABASE_URL 指向目标数据库，或设置 SQLX_OFFLINE=true 并提供对应离线缓存。
-两库的缓存分别准备，表结构变更后重新生成；清空 statement cache 不会更新 Rust DTO 或宏缓存。
-
-源码已有 query_macro.rs 和 doris_query_macro.rs。下面的命令会分别验证在线编译、离线缓存和缺缓存错误：
+Set DORIS_URL, then run the source examples:
 
 ```sh
-export MYSQL_TEST_URL="$MYSQL_URL"
-export DORIS_TEST_URL="$DORIS_URL"
-./scripts/dev ./scripts/test-macros
+./scripts/dev cargo run --locked --example query
+./scripts/dev cargo run --locked --features operations --example native_types
 ```
 
-该命令只查询常量，不建业务表。运行全部示例或完整双库测试，见[测试说明](TESTING.md)。
+Source examples and benchmarks remove their owned tables/databases after success. Failed operations retain the named fixture and external evidence for inspection; do not repeat uncertain writes merely to clean up.
+
+Operation wait helpers return InvalidInput if timeout cannot be represented by the clock. An oversized interval waits only until the deadline; no new read starts after it. Zero timeout still permits one immediately completed observation. MV cancel_materialized_view_task and wait_materialized_view_task require a positive TaskId, validated before acquiring a connection. An unrepresentable migration lock timeout returns a SQLx Configuration error without creating coordination metadata.
+
+<a name="doc-stream-load"></a>
+
+## Stream Load
+
+See [batch ingestion](INGESTION.md) to load JSON, CSV or Parquet/ORC files into an existing table. The guide provides minimal stream-load dependencies, copyable Rust, label/filter/visibility handling and unknown-outcome limits. send_file streams a file; send_bytes/send_json retain a complete memory batch. There is no arbitrary Stream/AsyncRead upload API or automatic write retry.
+
+<a name="doc-mv"></a>
+
+## Async MV refresh and observation
+
+Enable operations and use an existing async materialized view. request_refresh acknowledges submission only; this interface does not atomically return a task identity. Correlate the intended task and parent view from trusted evidence before passing its TaskId to observation. Task IDs are not chronological; the latest/largest ID is not proof of your submission, especially with concurrent refreshes.
+
+```rust
+use sqlx_doris::{
+    DorisPool,
+    operations::{
+        MaterializedViewTask, RefreshMode, Result, TableName,
+        refresh_materialized_view, wait_materialized_view_task,
+    },
+};
+use std::time::Duration;
+
+pub async fn request_refresh(pool: &DorisPool, view: &TableName) -> Result<()> {
+    refresh_materialized_view(pool, view, RefreshMode::Auto).await
+}
+
+pub async fn observe_known_task(
+    pool: &DorisPool,
+    view: &TableName,
+    verified_task_id: i64,
+) -> Result<MaterializedViewTask> {
+    wait_materialized_view_task(
+        pool,
+        view,
+        verified_task_id,
+        Duration::from_secs(60),
+        Duration::from_millis(250),
+    )
+    .await
+}
+```
+
+Inspect the returned task status: Success, Failed and Canceled are terminal; failures/cancellation are not converted to success. A timeout neither cancels the server task nor resubmits refresh. A successful task does not reconcile the entire view's business freshness. A full schema DSL, background scheduler and automatic refresh orchestration are outside these helpers; specialist cancellation/generation checks are described in [advanced recovery](RECOVERY.md#doc-mv-tasks).
+
+<a name="doc-macros"></a>
+
+## Checked query macros
+
+Enable sqlx-doris/macros and invoke checked query macros from the driver; generic APIs remain in upstream sqlx:
+
+```rust
+pub async fn checked(pool: &sqlx_doris::DorisPool) -> sqlx::Result<()> {
+    let row = sqlx_doris::query!(
+        "SELECT CAST(? AS BIGINT) AS `id!: i64`,CAST(? AS STRING) AS `name!: String`",
+        42_i64,
+        "Doris"
+    )
+    .fetch_one(pool)
+    .await?;
+    assert_eq!(row.id, 42);
+    Ok(())
+}
+```
+
+Supports query!, query_as!, query_scalar! and their query_file!/query_file_as!/query_file_scalar! counterparts. SQL must be literal SQL, concatenated literals or a file; runtime SQL continues to use query/bind. query_as! constructs named fields without a FromRow implementation. Renamed dependencies work with the same APIs and inferred Doris types.
+
+Set DATABASE_URL for online compilation. Macros PREPARE SQL and read metadata; they never execute business statements. They check SQL validity, parameter count, encodable arguments and output record types. Doris does not expose reliable parameter type metadata: parameter checking is weak, as supported by SQLx. Use explicit SQL CASTs where the server must establish a type.
+
+Some Doris expressions report LARGEINT, complex values or unbound placeholders as STRING/BLOB. Direct table columns use native DESC metadata, fetched once per origin table, to recover logical types such as BOOLEAN and LARGEINT. Ambiguous results require SQLx column overrides, for example ``AS `wide!: sqlx_doris::types::LargeInt` `` or ``AS `items!: sqlx_doris::types::Array<i32>` `` (use SQL backticks around the complete alias). `name!` forces non-null, `name?` forces nullable, and `name: Type` selects a Rust type. Default nullability is conservative; use ! only when guaranteed. Spell out columns with AS/backtick aliases for complex projections. Metadata enrichment requires DESC access. Native descriptions retain BOOLEAN where information_schema normalizes it to TINYINT(1). Expressions without usable origins may still require explicit overrides such as : bool. Use sqlx::types for shared adapters and sqlx_doris::types for Doris logical types. The official sqlx package must be a direct dependency named sqlx with derive or macros enabled for runtime helpers, matching upstream generated-code conventions.
+
+For ambiguous logical types, use explicit SQLx overrides:
+
+```sql
+SELECT CAST(1 AS LARGEINT) AS `wide!: sqlx_doris::types::LargeInt`,
+       ARRAY(1, 2) AS `items!: sqlx_doris::types::Array<i32>`
+```
+
+<a name="doc-offline"></a>
+
+## Prepare and offline builds
+
+```sh
+export DATABASE_URL='doris://app:secret@doris-fe:9030/app'
+export SQLX_OFFLINE_DIR="$SQLX_DORIS_EXTERNAL_VOLUME/sqlx-doris/offline/app"
+cargo sqlx-doris prepare --output "$SQLX_OFFLINE_DIR"
+cargo sqlx-doris prepare --check --output "$SQLX_OFFLINE_DIR"
+# Workspace/features: prepare -- --workspace --all-features
+SQLX_OFFLINE=true cargo check
+```
+
+Keep CARGO_TARGET_DIR, CARGO_BUILD_BUILD_DIR, CARGO_HOME and TMPDIR external too. Offline JSON uses SQLx query hashes and Describe data with database name Doris. Restore this build input to external storage in CI and set SQLX_OFFLINE_DIR. Do not create a repository .sqlx cache. prepare rebuilds application packages so --check sees current schema changes. --cargo-offline controls Cargo downloads; SQLX_OFFLINE controls query metadata. Extra Cargo feature/package/workspace options follow `--`; all targets are checked by default. OS file locks exclude concurrent prepare processes for both output directory and workspace, and release on exit. Do not delete the retained .sqlx-doris-prepare.lock files. Metadata is fully staged, then each JSON file is atomically replaced before old hash files are pruned; other files remain. --check validates query/hash consistency too. Re-run prepare to regenerate corrupt JSON. After a publication I/O failure, fix its cause, rerun prepare and verify with --check.
+
+prepare runs Cargo from the target manifest directory, loading that project and ancestor `.cargo/config.toml` files. Relative paths in extra Cargo arguments use that directory. `--cargo-offline` applies to metadata, clean and check; verified external target/build/cache environment paths remain enforced.
+
+<a name="doc-errors"></a>
+
+## Error types
+
+Queries, connections and explicit core recovery primitives return `sqlx::Error`; SQLx migrations use `sqlx::migrate::MigrateError`. Schema/MV/Stream Load helpers use `sqlx_doris::operations::Error/Result` (also available in `stream_load`); the Database variant preserves the SQLx cause. Local Time construction/parsing uses `sqlx_doris::types::TimeError`.
+
+Helper timeouts that exceed the clock range return InvalidInput before reading. Oversized intervals are clipped to the deadline; zero timeout permits one immediately ready result. MV cancel/wait require positive TaskId before pool acquisition. Migration lock timeout overflow returns SQLx Configuration before coordination metadata is created.

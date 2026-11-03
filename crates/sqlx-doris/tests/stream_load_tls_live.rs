@@ -1,10 +1,10 @@
 #![cfg(feature = "stream-load")]
+use sqlx_doris::operations::Error;
 mod common;
 
 use sqlx_doris::{
-    Backend, Client, Error,
+    DorisPool,
     operations::{Column, DataType, TableDefinition, TableModel, TableName},
-    sqlx,
     stream_load::StreamLoadClient,
 };
 use std::{
@@ -93,9 +93,10 @@ fn client(endpoint: &str, ca: &str, identity: bool) -> StreamLoadClient {
     }
     StreamLoadClient::with_client_builder(endpoint, "root", None, builder).unwrap()
 }
-async fn table(db: &Client) -> TableName {
+async fn table(db: &DorisPool) -> TableName {
     let name = common::name();
-    db.create_table(
+    sqlx_doris::operations::create_table(
+        db,
         &TableDefinition::new(name.clone(), TableModel::Duplicate, ["id"])
             .column(Column::new("id", DataType::BigInt).not_null())
             .column(Column::new("note", DataType::String))
@@ -105,7 +106,7 @@ async fn table(db: &Client) -> TableName {
     .unwrap();
     name
 }
-async fn send_and_read(http: &StreamLoadClient, db: &Client, name: &TableName) {
+async fn send_and_read(http: &StreamLoadClient, db: &DorisPool, name: &TableName) {
     let note = "HTTPS 中文🙂 \" \\ \n \0";
     let receipt = http
         .load(name)
@@ -120,7 +121,7 @@ async fn send_and_read(http: &StreamLoadClient, db: &Client, name: &TableName) {
         "SELECT note FROM {name} WHERE id=?"
     )))
     .bind(1_i64)
-    .fetch_one(db.pool())
+    .fetch_one(db)
     .await
     .unwrap();
     assert_eq!(value, note);
@@ -129,7 +130,7 @@ async fn send_and_read(http: &StreamLoadClient, db: &Client, name: &TableName) {
 #[tokio::test]
 #[ignore = "requires dedicated Doris HTTP/SQL and external TLS certificates"]
 async fn custom_ca_https_and_private_be_override_preserve_the_real_load() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let name = table(&db).await;
     let proxy = Proxy::start(&["--private-location"]);
     let http = client(&proxy.fe, "ca.pem", false)
@@ -175,7 +176,7 @@ async fn wrong_https_ca_and_hostname_are_rejected_before_upstream_requests() {
 #[tokio::test]
 #[ignore = "requires dedicated Doris HTTP/SQL and external TLS certificates"]
 async fn mtls_requires_a_client_certificate_and_accepts_the_signed_identity() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let name = table(&db).await;
     let proxy = Proxy::start(&["--mtls"]);
     let error = client(&proxy.fe, "ca.pem", false)
@@ -201,23 +202,27 @@ async fn mtls_requires_a_client_certificate_and_accepts_the_signed_identity() {
 #[tokio::test]
 #[ignore = "requires dedicated Doris HTTP/SQL and external TLS certificates"]
 async fn https_to_http_redirect_is_rejected_without_a_backend_write() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let name = table(&db).await;
     let proxy = Proxy::start(&["--downgrade"]);
-    let error = client(&proxy.fe, "ca.pem", false)
-        .load(&name)
-        .unwrap()
+    let http = client(&proxy.fe, "ca.pem", false);
+    let request = http.load(&name).unwrap();
+    let label = request.label_ref().unwrap().to_owned();
+    let error = request
         .send_json(&serde_json::json!([{ "id": 1, "note": "must not load" }]))
         .await
         .unwrap_err();
-    assert!(matches!(error, Error::InvalidInput(_)), "{error:?}");
+    assert!(
+        matches!(&error, Error::LoadRedirect { label: Some(actual), .. } if actual == &label),
+        "{error:?}"
+    );
     assert!(error.to_string().contains("downgrade"));
     let events = proxy.events();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0]["upstream_status"], 307);
     let count: i64 =
         sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {name}")))
-            .fetch_one(db.pool())
+            .fetch_one(&db)
             .await
             .unwrap();
     assert_eq!(count, 0);

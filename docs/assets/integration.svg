@@ -1,0 +1,165 @@
+<svg data-source-sha256="032e891b07e72076e4aa3179164cd093cb8aeea335092157903642c06c45b049" data-locale="en" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 888" role="img" aria-labelledby="integration-title integration-desc" data-view="integration">
+            <title id="integration-title">Separate control, execution and data.</title>
+            <desc id="integration-desc">Logical request paths; server internals and task duration are intentionally not simulated</desc>
+            <defs><style>
+        svg { --paper:#0b111a; --panel:#111b28; --raised:#192638; --edge:#34465b;
+            --ink:#edf3fa; --muted:#a4b4c8; --faint:#668097; --cyan:#62dbef;
+            --amber:#edc17d; --violet:#b7a1f5; --green:#8ed7ba; background:var(--paper); }
+        @media (prefers-color-scheme:light) {
+            svg { --paper:#f5f8fc; --panel:#fff; --raised:#e6eef7; --edge:#abbdd1;
+                --ink:#15273c; --muted:#425c74; --faint:#60788c; --cyan:#086780;
+                --amber:#855109; --violet:#654397; --green:#236c51; }
+        }
+        svg[data-theme=light] { --paper:#f5f8fc; --panel:#fff; --raised:#e6eef7; --edge:#abbdd1;
+            --ink:#15273c; --muted:#425c74; --faint:#60788c; --cyan:#086780;
+            --amber:#855109; --violet:#654397; --green:#236c51; }
+        svg[data-theme=dark] { --paper:#0b111a; --panel:#111b28; --raised:#192638; --edge:#34465b;
+            --ink:#edf3fa; --muted:#a4b4c8; --faint:#668097; --cyan:#62dbef;
+            --amber:#edc17d; --violet:#b7a1f5; --green:#8ed7ba; }
+        text { font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; fill:var(--ink); }
+        .title { font-size:27px; font-weight:650; letter-spacing:-.7px; }
+        .node-title { font-size:17px; font-weight:600; letter-spacing:-.2px; }
+        .body { font-size:14px; fill:var(--muted); }
+        .small { font-size:12px; fill:var(--muted); }
+        .micro { font-size:11px; fill:var(--faint); letter-spacing:1.3px; }
+        .mono { font:13px "SFMono-Regular",Consolas,"Liberation Mono",monospace; fill:var(--muted); }
+        .accent { fill:var(--cyan); }
+        .number { font:15px "SFMono-Regular",Consolas,monospace; fill:var(--cyan); }
+        .panel { fill:var(--panel); stroke:var(--edge); stroke-width:1; }
+        .raised { fill:var(--raised); stroke:var(--edge); stroke-width:1; }
+        .frame { fill:var(--paper); stroke:var(--edge); stroke-width:1; }
+        .rule { stroke:var(--edge); stroke-width:1; fill:none; }
+        .flow { fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+        .execute { stroke:var(--cyan); }
+        .control { stroke:var(--amber); stroke-dasharray:7 5; }
+        .metadata { stroke:var(--violet); stroke-dasharray:1 5; }
+        .data { stroke:var(--green); stroke-width:3; }
+        .dependency { stroke:var(--muted); }
+        .optional { stroke-dasharray:5 5; }
+        .relation-label { paint-order:stroke; stroke:var(--paper); stroke-width:7px; stroke-linejoin:round; }
+        [data-task], [data-package] { cursor:pointer; outline:none; }
+        [data-task]:focus-visible .panel, [data-package]:focus-visible .panel { stroke:var(--cyan); stroke-width:3; }
+        .selected .panel { stroke:var(--cyan); stroke-width:1.8; }
+        .dim .flow { stroke-width:1.3; }
+        .hot { stroke:var(--cyan); stroke-width:2.4; }
+        .selected .node-title { fill:var(--cyan); }
+    </style><marker id="integration-execute" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="9" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M1 1L9 4L1 7" fill="none" class="flow execute" style="stroke-dasharray:none"/></marker><marker id="integration-control" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="9" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M1 1L9 4L1 7" fill="none" class="flow control" style="stroke-dasharray:none"/></marker><marker id="integration-metadata" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="9" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M1 1L9 4L1 7" fill="none" class="flow metadata" style="stroke-dasharray:none"/></marker><marker id="integration-data" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="9" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M1 1L9 4L1 7" fill="none" class="flow data" style="stroke-dasharray:none"/></marker><marker id="integration-dependency" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="9" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M1 1L9 4L1 7" fill="none" class="flow dependency" style="stroke-dasharray:none"/></marker></defs>
+            <rect x="1" y="1" width="1198" height="886" rx="16" class="frame"/>
+            <text x="32" y="35" class="micro" >SQLX–DORIS / INTEGRATION</text>
+            <text x="32" y="75" class="title" >Separate control, execution and data.</text>
+            <text x="1168" y="35" class="micro" text-anchor="end">0.2.0 / UNRELEASED</text>
+            <text x="32" y="102" class="body" >Logical request paths; server internals and task duration are intentionally not simulated</text>
+            <rect x="22" y="124" width="1156" height="192" rx="10" class="panel"/><text x="38" y="150" class="micro" >A / BUILD TIME</text><text x="1160" y="150" class="small" text-anchor="end">Describe only; business SQL executes later at runtime</text><g class="node" data-for="checked">
+            <rect x="38" y="174" width="218" height="67" rx="9" class="raised"/>
+            <rect x="38" y="170" width="218" height="67" rx="9" class="panel"/>
+            <path d="M50 171H244" class="rule"/>
+            
+            <text x="54" y="197" class="node-title" >prepare (optional)</text>
+            <text x="54" y="221" class="mono" >cargo sqlx-doris</text>
+        </g><g class="node" data-for="checked">
+            <rect x="300" y="174" width="184" height="67" rx="9" class="raised"/>
+            <rect x="300" y="170" width="184" height="67" rx="9" class="panel"/>
+            <path d="M312 171H472" class="rule"/>
+            
+            <text x="316" y="197" class="node-title" >Cargo build</text>
+            <text x="316" y="221" class="mono" >application crate</text>
+        </g><g class="node" data-for="checked">
+            <rect x="544" y="174" width="246" height="67" rx="9" class="raised"/>
+            <rect x="544" y="170" width="246" height="67" rx="9" class="panel"/>
+            <path d="M556 171H778" class="rule"/>
+            
+            <text x="560" y="197" class="node-title" >sqlx_doris::query!</text>
+            <text x="560" y="221" class="mono" >proc-macro</text>
+        </g><g class="node" data-for="checked">
+            <rect x="872" y="167" width="288" height="59" rx="9" class="raised"/>
+            <rect x="872" y="163" width="288" height="59" rx="9" class="panel"/>
+            <path d="M884 164H1148" class="rule"/>
+            
+            <text x="888" y="185" class="node-title" >Doris FE</text>
+            <text x="888" y="211" class="mono" >online: describe</text>
+        </g><g class="node" data-for="checked">
+            <rect x="872" y="248" width="288" height="51" rx="9" class="raised"/>
+            <rect x="872" y="244" width="288" height="51" rx="9" class="panel"/>
+            <path d="M884 245H1148" class="rule"/>
+            
+            <text x="888" y="266" class="node-title" >Offline metadata</text>
+            <text x="888" y="284" class="mono" >SQLX_OFFLINE_DIR</text>
+        </g><path d="M256 201H300" class="flow control" marker-end="url(#integration-control)" /><path d="M484 201H544" class="flow control" marker-end="url(#integration-control)" /><path d="M790 192H872" class="flow metadata" marker-end="url(#integration-metadata)" /><text x="830" y="181" class="small relation-label" text-anchor="middle">online</text><path d="M790 213H825V270H872" class="flow metadata" marker-end="url(#integration-metadata)" /><text x="816" y="296" class="small relation-label" text-anchor="middle">or offline</text><text x="38" y="279" class="small" >prepare invokes the application build; it does not enable the application’s macros feature.</text><rect x="22" y="332" width="1156" height="292" rx="10" class="panel"/><text x="38" y="358" class="micro" >B / APPLICATION RUNTIME</text><text x="1160" y="358" class="small" text-anchor="end">Queries return rows; ingestion returns a business receipt</text><g class="node" data-for="query migrate helpers checked">
+            <rect x="38" y="388" width="218" height="72" rx="9" class="raised"/>
+            <rect x="38" y="384" width="218" height="72" rx="9" class="panel"/>
+            <path d="M50 385H244" class="rule"/>
+            
+            <text x="54" y="411" class="node-title" >Application</text>
+            <text x="54" y="440" class="mono" >queries / binds</text>
+        </g><g class="node" data-for="query migrate helpers checked">
+            <rect x="300" y="388" width="218" height="72" rx="9" class="raised"/>
+            <rect x="300" y="384" width="218" height="72" rx="9" class="panel"/>
+            <path d="M312 385H506" class="rule"/>
+            
+            <text x="316" y="411" class="node-title" >sqlx::query*</text>
+            <text x="316" y="440" class="mono" >DorisPool / Executor</text>
+        </g><g class="node" data-for="query migrate helpers checked">
+            <rect x="578" y="388" width="234" height="72" rx="9" class="raised"/>
+            <rect x="578" y="384" width="234" height="72" rx="9" class="panel"/>
+            <path d="M590 385H800" class="rule"/>
+            
+            <text x="594" y="411" class="node-title" >Doris core</text>
+            <text x="594" y="440" class="mono" >wire / types / values</text>
+        </g><g class="node" data-for="query migrate helpers checked">
+            <rect x="900" y="388" width="260" height="72" rx="9" class="raised"/>
+            <rect x="900" y="384" width="260" height="72" rx="9" class="panel"/>
+            <path d="M912 385H1148" class="rule"/>
+            
+            <text x="916" y="411" class="node-title" >Doris FE</text>
+            <text x="916" y="440" class="mono" >SQL endpoint</text>
+        </g><path d="M256 412H300" class="flow execute" marker-end="url(#integration-execute)" /><path d="M300 438H256" class="flow execute" marker-end="url(#integration-execute)" /><path d="M518 412H578" class="flow execute" marker-end="url(#integration-execute)" /><path d="M578 438H518" class="flow execute" marker-end="url(#integration-execute)" /><path d="M812 412H900" class="flow execute" marker-end="url(#integration-execute)" /><path d="M900 438H812" class="flow execute" marker-end="url(#integration-execute)" /><text x="856" y="400" class="small" text-anchor="middle">SQL →</text><text x="856" y="455" class="small" text-anchor="middle">← rows</text><g class="node" data-for="ingest">
+            <rect x="38" y="516" width="218" height="72" rx="9" class="raised"/>
+            <rect x="38" y="512" width="218" height="72" rx="9" class="panel"/>
+            <path d="M50 513H244" class="rule"/>
+            
+            <text x="54" y="539" class="node-title" >Application batch</text>
+            <text x="54" y="568" class="mono" >label + stable bytes</text>
+        </g><g class="node" data-for="ingest">
+            <rect x="300" y="516" width="218" height="72" rx="9" class="raised"/>
+            <rect x="300" y="512" width="218" height="72" rx="9" class="panel"/>
+            <path d="M312 513H506" class="rule"/>
+            
+            <text x="316" y="539" class="node-title" >StreamLoadClient</text>
+            <text x="316" y="568" class="mono" >HTTP ingestion</text>
+        </g><g class="node" data-for="ingest">
+            <rect x="578" y="516" width="234" height="72" rx="9" class="raised"/>
+            <rect x="578" y="512" width="234" height="72" rx="9" class="panel"/>
+            <path d="M590 513H800" class="rule"/>
+            
+            <text x="594" y="539" class="node-title" >Doris FE</text>
+            <text x="594" y="568" class="mono" >HTTP routing</text>
+        </g><g class="node" data-for="ingest">
+            <rect x="900" y="516" width="260" height="72" rx="9" class="raised"/>
+            <rect x="900" y="512" width="260" height="72" rx="9" class="panel"/>
+            <path d="M912 513H1148" class="rule"/>
+            
+            <text x="916" y="539" class="node-title" >Doris BE</text>
+            <text x="916" y="568" class="mono" >validated load target</text>
+        </g><path d="M256 541H300" class="flow data" marker-end="url(#integration-data)" /><path d="M518 541H578" class="flow control" marker-end="url(#integration-control)" /><text x="548" y="529" class="small relation-label" text-anchor="middle">PUT</text><path d="M578 565H518" class="flow control" marker-end="url(#integration-control)" /><text x="548" y="582" class="small relation-label" text-anchor="middle">307</text><path d="M409 584V604H1030V584" class="flow data" marker-end="url(#integration-data)" /><text x="734" y="618" class="small relation-label" text-anchor="middle">client upload → verified BE; FE does not relay the payload</text><rect x="22" y="640" width="1156" height="184" rx="10" class="panel"/><text x="38" y="666" class="micro" >C / EXPLICIT TOOL CONTROL</text><text x="1160" y="666" class="small" text-anchor="end">No automatic takeover or offset movement</text><g class="node" data-for="migrate diagnose">
+            <rect x="38" y="689" width="266" height="72" rx="9" class="raised"/>
+            <rect x="38" y="685" width="266" height="72" rx="9" class="panel"/>
+            <path d="M50 686H292" class="rule"/>
+            
+            <text x="54" y="712" class="node-title" >cargo sqlx-doris</text>
+            <text x="54" y="741" class="mono" >migrate / admin</text>
+        </g><g class="node" data-for="migrate diagnose">
+            <rect x="390" y="689" width="310" height="72" rx="9" class="raised"/>
+            <rect x="390" y="685" width="310" height="72" rx="9" class="panel"/>
+            <path d="M402 686H688" class="rule"/>
+            
+            <text x="406" y="712" class="node-title" >Runner / guarded ops</text>
+            <text x="406" y="741" class="mono" >owner / history / scope</text>
+        </g><g class="node" data-for="migrate diagnose">
+            <rect x="820" y="689" width="340" height="72" rx="9" class="raised"/>
+            <rect x="820" y="685" width="340" height="72" rx="9" class="panel"/>
+            <path d="M832 686H1148" class="rule"/>
+            
+            <text x="836" y="712" class="node-title" >Doris endpoints</text>
+            <text x="836" y="741" class="mono" >SQL + scoped maintenance HTTP</text>
+        </g><path d="M304 721H390" class="flow control" marker-end="url(#integration-control)" /><path d="M700 721H820" class="flow control" marker-end="url(#integration-control)" /><text x="760" y="707" class="small relation-label" text-anchor="middle">explicit</text><text x="38" y="798" class="small" >Kafka preflight is a separate direct broker observation (cli-admin-kafka); it does not relay through Doris or reset offsets.</text><path d="M32 854H66" class="flow execute" marker-end="url(#integration-execute)" /><text x="78" y="858" class="small" >SQL execution / rows</text><path d="M328 854H362" class="flow data" marker-end="url(#integration-data)" /><text x="374" y="858" class="small" >HTTP batch data</text><path d="M608 854H642" class="flow control" marker-end="url(#integration-control)" /><text x="654" y="858" class="small" >Control / orchestration</text><path d="M928 854H962" class="flow metadata" marker-end="url(#integration-metadata)" /><text x="974" y="858" class="small" >Build metadata</text>
+        </svg>

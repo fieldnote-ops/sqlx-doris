@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""Measure cached/uncached Doris point queries and streaming in release mode."""
+import os
+import sys
+from pathlib import Path
+
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    dev = Path(__file__).resolve().parent / "dev"
+    os.execv(str(dev), [str(dev), sys.executable, "-B", *sys.argv])
+from _common import *
+import json
+import platform
+import statistics
+from datetime import datetime, timezone
+
+if not os.environ.get("DORIS_TEST_URL"):
+    raise SystemExit("DORIS_TEST_URL is required (dedicated database)")
+run(
+    [
+        [
+            "cargo",
+            "run",
+            "--release",
+            "--locked",
+            "--offline",
+            "--features",
+            "operations",
+            "--example",
+            "benchmark",
+        ]
+    ],
+    "benchmark.log",
+)
+records = [
+    json.loads(line)
+    for line in (artifacts / "benchmark.log").read_text().splitlines()
+    if line.startswith("{")
+]
+summary = {
+    "measured_at_utc": datetime.now(timezone.utc).isoformat(),
+    "rustc": subprocess.check_output(["rustc", "--version"], text=True).strip(),
+    "host": platform.platform(),
+    "cpu": platform.processor(),
+    "records": records,
+    "median_qps": {},
+}
+for mode in ("cached", "uncached", "pool", "pool_no_ping", "text"):
+    samples = [r["qps"] for r in records if r.get("mode") == mode]
+    if len(samples) != 5:
+        raise SystemExit(f"Incomplete benchmark: {mode}")
+    summary["median_qps"][mode] = statistics.median(samples)
+(artifacts / "benchmark.json").write_text(json.dumps(summary, indent=2) + "\n")
+print(json.dumps(summary["median_qps"], indent=2))
+run(
+    [
+        [sys.executable, "-B", "scripts/benchmark-macros"],
+        [sys.executable, "-B", "scripts/benchmark-migrations"],
+        [sys.executable, "-B", "scripts/benchmark-workloads"],
+    ],
+    "benchmark-extensions.log",
+)

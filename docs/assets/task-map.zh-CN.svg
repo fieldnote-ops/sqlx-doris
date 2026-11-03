@@ -1,0 +1,113 @@
+<svg data-source-sha256="032e891b07e72076e4aa3179164cd093cb8aeea335092157903642c06c45b049" data-locale="zh" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 542" role="img" aria-labelledby="tasks-title tasks-desc" data-view="tasks">
+            <title id="tasks-title">按任务选路，沿清晰路径开始。</title>
+            <desc id="tasks-desc">一个 Doris 公开扩展 · 原生 SQLx API · 应用按需选择特性</desc>
+            <defs><style>
+        svg { --paper:#0b111a; --panel:#111b28; --raised:#192638; --edge:#34465b;
+            --ink:#edf3fa; --muted:#a4b4c8; --faint:#668097; --cyan:#62dbef;
+            --amber:#edc17d; --violet:#b7a1f5; --green:#8ed7ba; background:var(--paper); }
+        @media (prefers-color-scheme:light) {
+            svg { --paper:#f5f8fc; --panel:#fff; --raised:#e6eef7; --edge:#abbdd1;
+                --ink:#15273c; --muted:#425c74; --faint:#60788c; --cyan:#086780;
+                --amber:#855109; --violet:#654397; --green:#236c51; }
+        }
+        svg[data-theme=light] { --paper:#f5f8fc; --panel:#fff; --raised:#e6eef7; --edge:#abbdd1;
+            --ink:#15273c; --muted:#425c74; --faint:#60788c; --cyan:#086780;
+            --amber:#855109; --violet:#654397; --green:#236c51; }
+        svg[data-theme=dark] { --paper:#0b111a; --panel:#111b28; --raised:#192638; --edge:#34465b;
+            --ink:#edf3fa; --muted:#a4b4c8; --faint:#668097; --cyan:#62dbef;
+            --amber:#edc17d; --violet:#b7a1f5; --green:#8ed7ba; }
+        text { font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; fill:var(--ink); }
+        .title { font-size:27px; font-weight:650; letter-spacing:-.7px; }
+        .node-title { font-size:17px; font-weight:600; letter-spacing:-.2px; }
+        .body { font-size:14px; fill:var(--muted); }
+        .small { font-size:12px; fill:var(--muted); }
+        .micro { font-size:11px; fill:var(--faint); letter-spacing:1.3px; }
+        .mono { font:13px "SFMono-Regular",Consolas,"Liberation Mono",monospace; fill:var(--muted); }
+        .accent { fill:var(--cyan); }
+        .number { font:15px "SFMono-Regular",Consolas,monospace; fill:var(--cyan); }
+        .panel { fill:var(--panel); stroke:var(--edge); stroke-width:1; }
+        .raised { fill:var(--raised); stroke:var(--edge); stroke-width:1; }
+        .frame { fill:var(--paper); stroke:var(--edge); stroke-width:1; }
+        .rule { stroke:var(--edge); stroke-width:1; fill:none; }
+        .flow { fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+        .execute { stroke:var(--cyan); }
+        .control { stroke:var(--amber); stroke-dasharray:7 5; }
+        .metadata { stroke:var(--violet); stroke-dasharray:1 5; }
+        .data { stroke:var(--green); stroke-width:3; }
+        .dependency { stroke:var(--muted); }
+        .optional { stroke-dasharray:5 5; }
+        .relation-label { paint-order:stroke; stroke:var(--paper); stroke-width:7px; stroke-linejoin:round; }
+        [data-task], [data-package] { cursor:pointer; outline:none; }
+        [data-task]:focus-visible .panel, [data-package]:focus-visible .panel { stroke:var(--cyan); stroke-width:3; }
+        .selected .panel { stroke:var(--cyan); stroke-width:1.8; }
+        .dim .flow { stroke-width:1.3; }
+        .hot { stroke:var(--cyan); stroke-width:2.4; }
+        .selected .node-title { fill:var(--cyan); }
+    </style><marker id="tasks-execute" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="9" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M1 1L9 4L1 7" fill="none" class="flow execute" style="stroke-dasharray:none"/></marker><marker id="tasks-control" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="9" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M1 1L9 4L1 7" fill="none" class="flow control" style="stroke-dasharray:none"/></marker><marker id="tasks-metadata" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="9" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M1 1L9 4L1 7" fill="none" class="flow metadata" style="stroke-dasharray:none"/></marker><marker id="tasks-data" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="9" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M1 1L9 4L1 7" fill="none" class="flow data" style="stroke-dasharray:none"/></marker><marker id="tasks-dependency" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="9" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M1 1L9 4L1 7" fill="none" class="flow dependency" style="stroke-dasharray:none"/></marker></defs>
+            <rect x="1" y="1" width="1198" height="540" rx="16" class="frame"/>
+            <text x="32" y="35" class="micro" >SQLX–DORIS / TASKS</text>
+            <text x="32" y="75" class="title" >按任务选路，沿清晰路径开始。</text>
+            <text x="1168" y="35" class="micro" text-anchor="end">0.2.0 / UNRELEASED</text>
+            <text x="32" y="102" class="body" >一个 Doris 公开扩展 · 原生 SQLx API · 应用按需选择特性</text>
+            <g data-task="query" role="button" tabindex="0" aria-label="查询与流式读取" class="">
+                <rect x="32" y="133" width="556" height="111" rx="10" class="raised"/>
+                <rect x="32" y="130" width="556" height="111" rx="10" class="panel"/>
+                <text x="50" y="153" class="number" >01</text>
+                <text x="90" y="153" class="micro" >应用运行期</text>
+                <text x="50" y="178" class="node-title" >查询与流式读取</text>
+                <text x="50" y="201" class="mono" >sqlx::query* + DorisPool</text>
+                <path d="M50 214H570" class="rule"/>
+                <text x="50" y="232" class="mono accent" >无需特性 / default=[]</text>
+                <text x="562" y="179" class="node-title accent" >↗</text>
+            </g><g data-task="ingest" role="button" tabindex="0" aria-label="批量导入" class="">
+                <rect x="612" y="133" width="556" height="111" rx="10" class="raised"/>
+                <rect x="612" y="130" width="556" height="111" rx="10" class="panel"/>
+                <text x="630" y="153" class="number" >02</text>
+                <text x="670" y="153" class="micro" >应用运行期</text>
+                <text x="630" y="178" class="node-title" >批量导入</text>
+                <text x="630" y="201" class="mono" >StreamLoadClient → LoadReceipt</text>
+                <path d="M630 214H1150" class="rule"/>
+                <text x="630" y="232" class="mono accent" >stream-load</text>
+                <text x="1142" y="179" class="node-title accent" >↗</text>
+            </g><g data-task="checked" role="button" tabindex="0" aria-label="编译期检查 SQL" class="">
+                <rect x="32" y="260" width="556" height="111" rx="10" class="raised"/>
+                <rect x="32" y="257" width="556" height="111" rx="10" class="panel"/>
+                <text x="50" y="280" class="number" >03</text>
+                <text x="90" y="280" class="micro" >开发与交付</text>
+                <text x="50" y="305" class="node-title" >编译期检查 SQL</text>
+                <text x="50" y="328" class="mono" >sqlx_doris::query!</text>
+                <path d="M50 341H570" class="rule"/>
+                <text x="50" y="359" class="mono accent" >macros</text>
+                <text x="562" y="306" class="node-title accent" >↗</text>
+            </g><g data-task="migrate" role="button" tabindex="0" aria-label="交付结构变更" class="">
+                <rect x="612" y="260" width="556" height="111" rx="10" class="raised"/>
+                <rect x="612" y="257" width="556" height="111" rx="10" class="panel"/>
+                <text x="630" y="280" class="number" >04</text>
+                <text x="670" y="280" class="micro" >开发与交付</text>
+                <text x="630" y="305" class="node-title" >交付结构变更</text>
+                <text x="630" y="328" class="mono" >sqlx::migrate! / Migrator</text>
+                <path d="M630 341H1150" class="rule"/>
+                <text x="630" y="359" class="mono accent" >migrate</text>
+                <text x="1142" y="306" class="node-title accent" >↗</text>
+            </g><g data-task="helpers" role="button" tabindex="0" aria-label="使用 Doris 助手" class="">
+                <rect x="32" y="387" width="556" height="111" rx="10" class="raised"/>
+                <rect x="32" y="384" width="556" height="111" rx="10" class="panel"/>
+                <text x="50" y="407" class="number" >05</text>
+                <text x="90" y="407" class="micro" >应用运行期</text>
+                <text x="50" y="432" class="node-title" >使用 Doris 助手</text>
+                <text x="50" y="455" class="mono" >sqlx_doris::operations</text>
+                <path d="M50 468H570" class="rule"/>
+                <text x="50" y="486" class="mono accent" >operations</text>
+                <text x="562" y="433" class="node-title accent" >↗</text>
+            </g><g data-task="diagnose" role="button" tabindex="0" aria-label="诊断异常" class="">
+                <rect x="612" y="387" width="556" height="111" rx="10" class="raised"/>
+                <rect x="612" y="384" width="556" height="111" rx="10" class="panel"/>
+                <text x="630" y="407" class="number" >06</text>
+                <text x="670" y="407" class="micro" >专项运维</text>
+                <text x="630" y="432" class="node-title" >诊断异常</text>
+                <text x="630" y="455" class="mono" >cargo sqlx-doris admin diagnose</text>
+                <path d="M630 468H1150" class="rule"/>
+                <text x="630" y="486" class="mono accent" >cli-admin</text>
+                <text x="1142" y="433" class="node-title accent" >↗</text>
+            </g><text x="32" y="522" class="small" >这里列出 Doris 特性；上游 SQLx 特性仍需显式选择，详见任务说明与指南。</text>
+        </svg>

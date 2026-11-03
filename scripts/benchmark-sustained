@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""Measure sustained mixed reads and sampled process RSS; no mutation retries."""
+import os
+import sys
+from pathlib import Path
+
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    dev = Path(__file__).resolve().parent / "dev"
+    os.execv(str(dev), [str(dev), sys.executable, "-B", *sys.argv])
+from _common import *
+
+import argparse
+import json
+import platform
+import time
+import uuid
+from datetime import datetime, timezone
+
+
+def bounded(low, high):
+    def parse(value):
+        number = int(value)
+        if not low <= number <= high:
+            raise argparse.ArgumentTypeError(f"must be {low}..={high}")
+        return number
+
+    return parse
+
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument(
+    "--seconds", type=bounded(10, 3600), default=60, help="seconds per round"
+)
+parser.add_argument("--rounds", type=bounded(1, 20), default=3)
+parser.add_argument("--workers", type=bounded(2, 256), default=16)
+parser.add_argument("--pool-size", type=bounded(1, 64), default=4)
+parser.add_argument("--cache-capacity", type=bounded(1, 16), default=8)
+parser.add_argument("--seed", type=bounded(1, 2**64 - 1), default=9417)
+args = parser.parse_args()
+if args.workers <= args.pool_size:
+    parser.error("workers must exceed pool-size")
+if not os.environ.get("DORIS_TEST_URL"):
+    parser.error("DORIS_TEST_URL is required (dedicated administrative test endpoint)")
+
+run(
+    [
+        [
+            "cargo",
+            "build",
+            "--release",
+            "--locked",
+            "--offline",
+            "--example",
+            "sustained",
+        ]
+    ],
+    "sustained-build.log",
+)
+env = os.environ.copy()
+for key, value in dict(
+    SECONDS=args.seconds,
+    ROUNDS=args.rounds,
+    WORKERS=args.workers,
+    POOL_SIZE=args.pool_size,
+    CACHE=args.cache_capacity,
+).items():
+    env["DORIS_SOAK_" + key] = str(value)
+env["DORIS_RANDOM_SEED"] = str(args.seed)
+identifier = uuid.uuid4().hex
+log = artifacts / f"sustained-{identifier}.log"
+samples = []
+failure = None
+started = time.monotonic()
+with log.open("w") as output:
+    child = subprocess.Popen(
+        [str(Path(env["CARGO_TARGET_DIR"]) / "release/examples/sustained")],
+        env=env,
+        stdout=output,
+        stderr=subprocess.STDOUT,
+    )
+    try:
+        deadline = started + args.seconds * args.rounds + 180
+        while child.poll() is None:
+            memory = subprocess.run(
+                ["ps", "-p", str(child.pid), "-o", "rss="],
+                capture_output=True,
+                text=True,
+            )
+            if memory.returncode == 0 and memory.stdout.strip().isdigit():
+                samples.append(
+                    dict(seconds=time.monotonic() - started, rss_kib=int(memory.stdout))
+                )
+            if time.monotonic() > deadline:
+                failure = "workload_deadline_exceeded"
+                break
+            try:
+                child.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                pass
+    except KeyboardInterrupt:
+        failure = "interrupted"
+    finally:
+        if child.poll() is None:
+            child.terminate()
+            try:
+                child.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait()
+records = [
+    json.loads(line) for line in log.read_text().splitlines() if line.startswith("{")
+]
+result = dict(
+    measured_at_utc=datetime.now(timezone.utc).isoformat(),
+    rustc=subprocess.check_output(["rustc", "--version"], text=True).strip(),
+    host=platform.platform(),
+    settings=vars(args),
+    exit_code=child.returncode,
+    failure=failure,
+    records=records,
+    rss_samples=samples,
+    max_sampled_rss_kib=max((x["rss_kib"] for x in samples), default=None),
+    raw_log=str(log),
+    rss_is_sampled_not_absolute_peak=True,
+    latency_histogram_bin_ms=1,
+    server_prepared_handle_count="not measured",
+)
+destination = artifacts / f"benchmark-sustained-{identifier}.json"
+destination.write_text(json.dumps(result, indent=2) + "\n")
+if (
+    child.returncode
+    or len([v for v in records if v["event"] == "round"]) != args.rounds
+    or not records
+    or records[-1]["event"] != "verified"
+):
+    raise SystemExit(
+        f"Sustained verification failed: {destination}; inspect fixture before another run"
+    )
+print(f"Sustained workload verified: {destination}")

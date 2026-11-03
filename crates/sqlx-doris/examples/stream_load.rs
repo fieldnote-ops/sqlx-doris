@@ -1,8 +1,9 @@
-//! Load structured JSON through FE/BE, query with SQLx, and remove the demo table.
+//! Load structured JSON through FE/BE and verify it. Failures preserve the demo table.
+use sqlx::Executor;
+use sqlx_doris::operations::Result;
 use sqlx_doris::{
-    Backend, Client, PoolBuilder, Result,
+    DorisPool,
     operations::{self, Column, DataType as T, TableDefinition, TableModel, TableName},
-    sqlx::{self, Executor},
     stream_load::StreamLoadClient,
     types::Array,
 };
@@ -11,12 +12,16 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-async fn load(db: &Client, http: &StreamLoadClient, schema: &TableDefinition) -> Result<()> {
+async fn load(db: &DorisPool, http: &StreamLoadClient, schema: &TableDefinition) -> Result<()> {
     let text = "中文🙂 \" \\ \n \0";
     let receipt = http
         .load_table(schema)?
         .label(format!("{}_batch_1", schema.name.table))
-        .send_json(&[serde_json::json!({ "id": 1, "name": "demo", "tags": [text, null] })])
+        .send_json(&[serde_json::json!({
+            "id": 1,
+            "name": "demo",
+            "tags": [text, null]
+        })])
         .await?;
     println!("{receipt}; state={:?}", receipt.state());
     operations::wait_until(
@@ -27,15 +32,14 @@ async fn load(db: &Client, http: &StreamLoadClient, schema: &TableDefinition) ->
                 "SELECT COUNT(*) FROM {}",
                 schema.name
             )))
-            .fetch_one(db.pool())
+            .fetch_one(db)
             .await?;
             Ok(count == 1)
         },
     )
     .await?;
     let mut select = schema.select_builder()?;
-    let row: (i64, String, Array<Option<String>>) =
-        select.build_query_as().fetch_one(db.pool()).await?;
+    let row: (i64, String, Array<Option<String>>) = select.build_query_as().fetch_one(db).await?;
     assert_eq!(
         row,
         (1, "demo".into(), Array(vec![Some(text.into()), None]))
@@ -46,9 +50,7 @@ async fn load(db: &Client, http: &StreamLoadClient, schema: &TableDefinition) ->
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let db = PoolBuilder::new(Backend::Doris)
-        .connect(&env::var("DORIS_URL")?)
-        .await?;
+    let db = DorisPool::connect(&env::var("DORIS_URL")?).await?;
     let mut http = StreamLoadClient::new(
         &env::var("DORIS_HTTP_URL")?,
         env::var("DORIS_HTTP_USER").unwrap_or_else(|_| "root".into()),
@@ -58,7 +60,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         http = http.backend_endpoint(&be)?;
     }
     let database: String = sqlx::query_scalar("SELECT DATABASE()")
-        .fetch_one(db.pool())
+        .fetch_one(&db)
         .await?;
     let name = TableName::new(
         database,
@@ -72,14 +74,17 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .column(Column::new("name", T::String))
         .column(Column::new("tags", T::array(T::String)))
         .replication(1);
-    db.create_table(&schema).await?;
-    let result = load(&db, &http, &schema).await;
-    let cleanup = db
-        .pool()
-        .execute(sqlx::AssertSqlSafe(format!("DROP TABLE {name}")))
-        .await;
+    sqlx_doris::operations::create_table(&db, &schema).await?;
+    if let Err(error) = load(&db, &http, &schema).await {
+        eprintln!(
+            "Demo table {name} and batch {}_batch_1 retained for reconciliation",
+            name.table
+        );
+        db.close().await;
+        return Err(error.into());
+    }
+    db.execute(sqlx::AssertSqlSafe(format!("DROP TABLE {name}")))
+        .await?;
     db.close().await;
-    result?;
-    cleanup?;
     Ok(())
 }

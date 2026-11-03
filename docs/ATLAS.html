@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark light">
+    <meta name="description" content="A task map, integration paths and five-package architecture for sqlx-doris.">
+    <title>sqlx-doris · Architecture & task atlas</title>
+    <link rel="stylesheet" href="assets/atlas.css">
+    <script src="assets/atlas-data.js" defer></script>
+    <script src="assets/atlas.js" defer></script>
+</head>
+<body>
+    <a class="skip" href="#workspace">Skip to the task map</a>
+    <div class="shell">
+        <header class="topbar">
+            <a class="brand" href="README.md"><span class="brand-symbol" aria-hidden="true"></span>sqlx-doris <span aria-hidden="true">/</span> atlas</a>
+            <nav class="topnav" aria-label="Documentation controls">
+                <a href="README.md" class="guide-return">Documentation ↗</a>
+                <a href="ATLAS.zh-CN.html" data-language lang="zh-CN">简体中文</a>
+                <button class="utility" type="button" data-theme-choice>Theme: auto</button>
+            </nav>
+        </header>
+        <section class="intro" aria-labelledby="page-title">
+            <div>
+                <p class="eyebrow">DEVELOPER ATLAS / APACHE DORIS</p>
+                <h1 id="page-title">Choose your path. See every boundary.</h1>
+                <p>Start with a task. Trace the API, feature and request path; keep build-time checks, application execution and explicit administration separate.</p>
+            </div>
+            <div class="reference"><strong>SQLx 0.9.0 · Doris 4.1.5</strong><br>0.2.0 / UNRELEASED<br>REFERENCE MODEL · NOT LIVE STATUS</div>
+        </section>
+        <div data-loading class="fallback">
+            <p>The interactive view requires local JavaScript. All task links and static diagrams remain available in the <a href="ARCHITECTURE.md">architecture guide</a> and <a href="README.md">documentation index</a>.</p>
+            <img src="assets/task-map.svg" alt="Six task routes: queries, ingestion, checked SQL, migrations, helpers and diagnosis.">
+        </div>
+        <main id="workspace" class="workspace" data-atlas hidden>
+            <aside class="sidebar" aria-label="Choose a task">
+                <p class="section-label">START WITH A TASK</p>
+                <div class="task-list" data-task-list></div>
+                <div class="sidebar-note">Select a task, then switch views. Diagrams are horizontally scrollable on small screens; the detail panel stays readable.<a href="ARCHITECTURE.md">Read the complete map ↗</a></div>
+            </aside>
+            <div class="content">
+                <div class="tabs" role="tablist" aria-label="Map views" data-tabs>
+                    <button id="tab-tasks" type="button" role="tab" aria-controls="diagram" aria-selected="true" data-view-choice="tasks"><span>01</span>Task map</button>
+                    <button id="tab-integration" type="button" role="tab" aria-controls="diagram" aria-selected="false" data-view-choice="integration"><span>02</span>Integration</button>
+                    <button id="tab-packages" type="button" role="tab" aria-controls="diagram" aria-selected="false" data-view-choice="packages"><span>03</span>Five packages</button>
+                </div>
+                <div class="diagram-tools"><span>Reference paths · task details below</span><button type="button" data-fit aria-pressed="false" hidden>Fit diagram</button></div>
+                <section id="diagram" role="tabpanel" aria-labelledby="tab-tasks" tabindex="0">
+                    <div class="canvas-wrap">
+                        <div class="canvas" data-canvas></div>
+                        <p class="canvas-caption"><span>TECHNICAL REFERENCE / DIRECTIONAL RELATIONS</span>Use task buttons or keyboard; diagrams scroll inside this frame.</p>
+                    </div>
+                    <p class="topology-note" data-topology-note hidden>All edges remain visible. Highlighting is task context, not a resolved Cargo graph. Dependency arrows do not represent execution order.</p>
+                    <p class="package-detail" role="status" data-package-detail hidden></p>
+                </section>
+                <section class="inspector" aria-labelledby="current-task-title">
+                    <div class="inspector-header">
+                        <span class="current-number" data-current-number></span>
+                        <div><h2 id="current-task-title" tabindex="-1" data-current-title></h2><p data-current-description></p></div>
+                    </div>
+                    <dl class="facts">
+                        <div><dt>Public API / command</dt><dd><code data-current-api></code></dd></div>
+                        <div><dt>Doris feature</dt><dd><code data-current-feature></code></dd></div>
+                        <div><dt>Upstream SQLx</dt><dd data-current-upstream></dd></div>
+                        <div><dt>Execution / control path</dt><dd data-current-flow></dd></div>
+                    </dl>
+                    <p class="boundary"><strong>Contract to keep</strong><span data-current-boundary></span></p>
+                    <div class="actions">
+                        <div class="guide-links" data-guide-links></div>
+                        <div class="copy-group"><code data-copy-value></code><button type="button" data-copy>Copy feature list</button><span class="copy-feedback" role="status" data-copy-feedback></span></div>
+                    </div>
+                </section>
+            </div>
+            <p class="sr-only" aria-live="polite" aria-atomic="true" data-announcement></p>
+        </main>
+        <footer class="footer"><span>One public Doris extension. Upstream SQLx supplies generic APIs.<br>Guide links open the paired Markdown source in this checkout.</span><span><a href="ARCHITECTURE.md">Architecture & text equivalent</a> · <a href="COMPATIBILITY.md">Verified limits</a><br>Local SVG / CSS / JavaScript · no network dependency</span></footer>
+    </div>
+</body>
+</html>

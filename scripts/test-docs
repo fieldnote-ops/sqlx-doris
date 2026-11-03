@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""Compile distinct Rust guide examples; query macros require prepared metadata."""
+
+import os
+import sys
+from pathlib import Path
+
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    dev = Path(__file__).resolve().parent / "dev"
+    os.execv(str(dev), [str(dev), sys.executable, "-B", *sys.argv])
+
+from _common import *
+from _docs import parse, validate
+import argparse
+import hashlib
+import json
+import re
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument(
+    "--query-metadata",
+    type=Path,
+    help="external prepared SQLX_OFFLINE_DIR; also compile the checked-query example",
+)
+args = parser.parse_args()
+validate(project)
+pages = [
+    project / "README.md",
+    *sorted((project / "docs").glob("*.md")),
+    *sorted((project / "crates").glob("*/README.md")),
+]
+examples = {}
+for page in pages:
+    if page.name.endswith(".zh-CN.md"):
+        continue
+    for language, code in parse(page.read_text()).code:
+        if language == "rust":
+            examples.setdefault(code, []).append(str(page.relative_to(project)))
+
+selected = {}
+needs_metadata = []
+for code, sources in examples.items():
+    if "sqlx_doris::query!(" in code and args.query_metadata is None:
+        needs_metadata.append(sources)
+    else:
+        selected[code] = sources
+
+base = Path(os.environ["SQLX_DORIS_BUILD_ROOT"])
+cache = None
+if args.query_metadata is not None:
+    cache = args.query_metadata.resolve()
+    volume = Path(os.environ["SQLX_DORIS_EXTERNAL_VOLUME"]).resolve()
+    if not cache.is_relative_to(volume) or cache.stat().st_dev != volume.stat().st_dev:
+        raise SystemExit("--query-metadata must be on the verified external volume")
+
+# Independent manifests keep unrelated guide examples from supplying features
+# that a reader's minimal application does not have.
+profiles = {}
+for code, sources in selected.items():
+    if "stream_load::" in code or "StreamLoadClient" in code:
+        profile = "stream-load"
+    elif re.search(r"sqlx_doris::query(?:_as|_scalar|_file(?:_as|_scalar)?)?!", code):
+        profile = "macros"
+    elif "sqlx::migrate" in code:
+        profile = "migrate"
+    elif "operations::" in code:
+        profile = "operations"
+    else:
+        profile = "runtime"
+    profiles.setdefault(profile, {})[code] = sources
+
+for profile, snippets in profiles.items():
+    directory = base / "documentation-consumer" / profile
+    (directory / "src").mkdir(parents=True, exist_ok=True)
+    features = [] if profile == "runtime" else [profile]
+    upstream = ["macros", "migrate"] if profile == "migrate" else ["derive"]
+    if profile == "migrate":
+        (directory / "migrations").mkdir(exist_ok=True)
+        (directory / "migrations/1_example.sql").write_text("SELECT 1;\n")
+    extra = 'serde_json = "1"\n' if any("serde_json" in c for c in snippets) else ""
+    manifest = f"""[package]
+name = "doris-documentation-{profile}"
+version = "0.0.0"
+edition = "2024"
+[workspace]
+[dependencies]
+sqlx = {{ version = "=0.9.0", default-features = false, features = {json.dumps(upstream)} }}
+sqlx-doris = {{ path = {json.dumps(str(project / "crates/sqlx-doris"))}, features = {json.dumps(features)} }}
+tokio = {{ version = "1", features = ["macros", "rt-multi-thread"] }}
+{extra}"""
+    (directory / "Cargo.toml").write_text(manifest)
+    source = "#![allow(dead_code)]\n\n"
+    for index, code in enumerate(snippets):
+        source += f"mod example_{index} {{\n"
+        source += "\n".join("    " + line if line else "" for line in code.splitlines())
+        source += "\n}\n\n"
+    (directory / "src/lib.rs").write_text(source)
+    run(
+        [["rustfmt", "--edition", "2024", str(directory / "src/lib.rs")]],
+        f"doc-{profile}-format.log",
+    )
+    env = os.environ.copy()
+    env.pop("DATABASE_URL", None)
+    env["SQLX_OFFLINE"] = "true"
+    if profile == "macros":
+        env["SQLX_OFFLINE_DIR"] = str(cache)
+    run(
+        [
+            [
+                "cargo",
+                "check",
+                "--offline",
+                "--manifest-path",
+                str(directory / "Cargo.toml"),
+            ]
+        ],
+        f"doc-{profile}.log",
+        env=env,
+        cwd=directory,
+    )
+# Syntax-check shell blocks without executing commands or writing to a server.
+for page in pages:
+    if page.name.endswith(".zh-CN.md"):
+        continue
+    for language, code in parse(page.read_text()).code:
+        if language in ("sh", "bash"):
+            result = subprocess.run(
+                ["bash", "-n"], input=code, text=True, capture_output=True
+            )
+            if result.returncode:
+                raise SystemExit(f"Invalid shell syntax in {page}: {result.stderr}")
+summary = dict(
+    compiled=len(selected),
+    profiles={name: len(snippets) for name, snippets in profiles.items()},
+    examples=[
+        dict(sha256=hashlib.sha256(c.encode()).hexdigest(), sources=s)
+        for c, s in selected.items()
+    ],
+    requires_prepared_metadata=needs_metadata,
+    query_macros_checked=args.query_metadata is not None,
+    shell_syntax="passed; commands were not executed",
+)
+(artifacts / "doc-examples-summary.json").write_text(
+    json.dumps(summary, indent=2) + "\n"
+)
+print(
+    f"Compiled {len(selected)} distinct Rust examples; metadata-dependent groups not run: {len(needs_metadata)}"
+)

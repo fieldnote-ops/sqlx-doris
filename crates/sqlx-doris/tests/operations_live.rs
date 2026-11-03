@@ -1,12 +1,12 @@
 mod common;
 
+use sqlx::{Executor, Row, ValueRef};
 use sqlx_doris::{
-    Backend, Error, GroupCommit, PoolBuilder,
+    DorisPoolOptions,
     operations::{
-        Aggregate as A, AggregateArgument, Column, DataType as T, TableDefinition, TableModel,
-        TableName,
+        Aggregate as A, AggregateArgument, Column, DataType as T, Error, TableDefinition,
+        TableModel, TableName,
     },
-    sqlx::{self, Executor, Row, ValueRef},
 };
 use std::{env, time::Duration};
 
@@ -17,9 +17,9 @@ fn definition(name: TableName, model: TableModel) -> TableDefinition {
         .replication(1)
 }
 
-async fn count(db: &sqlx_doris::Client, table: &TableName) -> i64 {
+async fn count(db: &sqlx_doris::DorisPool, table: &TableName) -> i64 {
     sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {table}")))
-        .fetch_one(db.pool())
+        .fetch_one(db)
         .await
         .unwrap()
 }
@@ -37,7 +37,7 @@ struct AggregateRow {
 #[tokio::test]
 #[ignore = "requires Doris"]
 async fn aggregate_model_merges_batches_and_retains_declared_null_semantics_and_metadata() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let table = common::name();
     let schema = TableDefinition::new(table.clone(), TableModel::Aggregate, ["id"])
         .column(Column::new("id", T::BigInt).not_null())
@@ -47,7 +47,9 @@ async fn aggregate_model_merges_batches_and_retains_declared_null_semantics_and_
         .column(Column::new("latest", T::String).aggregate(A::Replace))
         .column(Column::new("remembered", T::String).aggregate(A::ReplaceIfNotNull))
         .replication(1);
-    db.create_table(&schema).await.unwrap();
+    sqlx_doris::operations::create_table(&db, &schema)
+        .await
+        .unwrap();
     // Separate committed batches make REPLACE ordering deterministic.
     for (total, latest, remembered) in [
         (Some(10_i64), Some("first"), Some("keep")),
@@ -63,7 +65,7 @@ async fn aggregate_model_merges_batches_and_retains_declared_null_semantics_and_
         .bind(total)
         .bind(latest)
         .bind(remembered)
-        .execute(db.pool())
+        .execute(&db)
         .await
         .unwrap();
     }
@@ -71,7 +73,7 @@ async fn aggregate_model_merges_batches_and_retains_declared_null_semantics_and_
         .select_builder()
         .unwrap()
         .build_query_as()
-        .fetch_one(db.pool())
+        .fetch_one(&db)
         .await
         .unwrap();
     assert_eq!(
@@ -85,7 +87,9 @@ async fn aggregate_model_merges_batches_and_retains_declared_null_semantics_and_
             remembered: Some("last".into()),
         }
     );
-    let metadata = db.describe_table(&table).await.unwrap();
+    let metadata = sqlx_doris::operations::describe_table(&db, &table)
+        .await
+        .unwrap();
     assert_eq!(metadata.len(), 6);
     assert!(metadata[0].is_key);
     assert!(!metadata[0].nullable);
@@ -103,15 +107,15 @@ async fn aggregate_model_merges_batches_and_retains_declared_null_semantics_and_
     }
     // The builder leaves final model/type constraints to the real server.
     let invalid = common::name();
-    let error = db
-        .create_table(
-            &TableDefinition::new(invalid, TableModel::Aggregate, ["id"])
-                .column(Column::new("id", T::BigInt).not_null())
-                .column(Column::new("invalid_sum", T::String).aggregate(A::Sum))
-                .replication(1),
-        )
-        .await
-        .unwrap_err();
+    let error = sqlx_doris::operations::create_table(
+        &db,
+        &TableDefinition::new(invalid, TableModel::Aggregate, ["id"])
+            .column(Column::new("id", T::BigInt).not_null())
+            .column(Column::new("invalid_sum", T::String).aggregate(A::Sum))
+            .replication(1),
+    )
+    .await
+    .unwrap_err();
     assert!(
         matches!(error, Error::Database(sqlx::Error::Database(_))),
         "{error:?}"
@@ -124,9 +128,10 @@ async fn aggregate_model_merges_batches_and_retains_declared_null_semantics_and_
 #[tokio::test]
 #[ignore = "requires Doris"]
 async fn opaque_aggregation_columns_are_constructed_merged_and_read_via_scalar_functions() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let table = common::name();
-    db.create_table(
+    sqlx_doris::operations::create_table(
+        &db,
         &TableDefinition::new(table.clone(), TableModel::Aggregate, ["id"])
             .column(Column::new("id", T::BigInt).not_null())
             .column(
@@ -156,7 +161,7 @@ async fn opaque_aggregation_columns_are_constructed_merged_and_read_via_scalar_f
         .bind(bit)
         .bind(user)
         .bind(latency)
-        .execute(db.pool())
+        .execute(&db)
         .await
         .unwrap();
     }
@@ -165,7 +170,7 @@ async fn opaque_aggregation_columns_are_constructed_merged_and_read_via_scalar_f
             0.0),QUANTILE_PERCENT(latencies,0.5),QUANTILE_PERCENT(latencies,1.0) FROM \
             {table}"
     )))
-    .fetch_one(db.pool())
+    .fetch_one(&db)
     .await
     .unwrap();
     assert_eq!((actual.0, actual.1), (2, 2));
@@ -175,7 +180,7 @@ async fn opaque_aggregation_columns_are_constructed_merged_and_read_via_scalar_f
     let raw = sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "SELECT bits,users,latencies FROM {table}"
     )))
-    .fetch_one(db.pool())
+    .fetch_one(&db)
     .await
     .unwrap();
     // Default result serialization deliberately hides opaque state objects.
@@ -189,7 +194,7 @@ async fn opaque_aggregation_columns_are_constructed_merged_and_read_via_scalar_f
         "SELECT bits,users,latencies FROM {table} WHERE id=?"
     )))
     .bind(1_i64)
-    .fetch_one(db.pool())
+    .fetch_one(&db)
     .await
     .unwrap();
     for index in 0..3 {
@@ -203,9 +208,9 @@ async fn opaque_aggregation_columns_are_constructed_merged_and_read_via_scalar_f
 #[ignore = "requires Doris"]
 async fn aggregate_state_signatures_support_bound_construction_merge_union_and_reject_other_functions()
  {
-    let db = PoolBuilder::new(Backend::Doris)
+    let db = DorisPoolOptions::new()
         .max_connections(2)
-        .after_connect(|connection| {
+        .after_connect(|connection, _| {
             Box::pin(async move {
                 connection.execute("SET enable_agg_state=true").await?;
                 Ok(())
@@ -214,6 +219,7 @@ async fn aggregate_state_signatures_support_bound_construction_merge_union_and_r
         .connect(&env::var("DORIS_TEST_URL").unwrap())
         .await
         .unwrap();
+    let db = db;
     let table = common::name();
     let state = T::AggState {
         function: "max_by".into(),
@@ -222,7 +228,8 @@ async fn aggregate_state_signatures_support_bound_construction_merge_union_and_r
             AggregateArgument::new(T::Int),
         ],
     };
-    db.create_table(
+    sqlx_doris::operations::create_table(
+        &db,
         &TableDefinition::new(table.clone(), TableModel::Aggregate, ["id"])
             .column(Column::new("id", T::BigInt).not_null())
             .column(Column::new("state_value", state).aggregate(A::Generic))
@@ -237,14 +244,14 @@ async fn aggregate_state_signatures_support_bound_construction_merge_union_and_r
         .bind(key)
         .bind(value)
         .bind(order)
-        .execute(db.pool())
+        .execute(&db)
         .await
         .unwrap();
     }
     let rows: Vec<(i64, i32)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT id,MAX_BY_MERGE(state_value) FROM {table} GROUP BY id ORDER BY id"
     )))
-    .fetch_all(db.pool())
+    .fetch_all(&db)
     .await
     .unwrap();
     assert_eq!(rows, [(1, 2), (2, 1)]);
@@ -252,7 +259,7 @@ async fn aggregate_state_signatures_support_bound_construction_merge_union_and_r
         "SELECT MAX_BY_MERGE(merged) FROM (SELECT MAX_BY_UNION(state_value) AS \
             merged FROM {table} GROUP BY id) t"
     )))
-    .fetch_one(db.pool())
+    .fetch_one(&db)
     .await
     .unwrap();
     assert_eq!(combined, 1);
@@ -263,13 +270,13 @@ async fn aggregate_state_signatures_support_bound_construction_merge_union_and_r
     .bind(3_i64)
     .bind(5_i64)
     .bind(4_i32)
-    .execute(db.pool())
+    .execute(&db)
     .await
     .unwrap();
     let coerced: i32 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT MAX_BY_MERGE(state_value) FROM {table} WHERE id=3"
     )))
-    .fetch_one(db.pool())
+    .fetch_one(&db)
     .await
     .unwrap();
     assert_eq!(coerced, 5);
@@ -278,12 +285,14 @@ async fn aggregate_state_signatures_support_bound_construction_merge_union_and_r
     )))
     .bind(4_i64)
     .bind(9_i32)
-    .execute(db.pool())
+    .execute(&db)
     .await
     .unwrap_err();
     assert!(matches!(mismatch, sqlx::Error::Database(_)), "{mismatch:?}");
     assert_eq!(count(&db, &table).await, 3);
-    let metadata = db.describe_table(&table).await.unwrap();
+    let metadata = sqlx_doris::operations::describe_table(&db, &table)
+        .await
+        .unwrap();
     assert!(
         metadata[1]
             .data_type
@@ -305,14 +314,21 @@ async fn aggregate_state_signatures_support_bound_construction_merge_union_and_r
 #[tokio::test]
 #[ignore = "requires Doris"]
 async fn synchronous_group_commit_sql_is_visible_on_return_and_failure_does_not_replay_batches() {
-    let db = PoolBuilder::new(Backend::Doris)
+    let db = DorisPoolOptions::new()
         .max_connections(2)
-        .group_commit(GroupCommit::Sync)
+        .after_connect(|c, _| {
+            Box::pin(async move {
+                c.execute("SET group_commit = sync_mode").await?;
+                Ok(())
+            })
+        })
         .connect(&env::var("DORIS_TEST_URL").unwrap())
         .await
         .unwrap();
+    let db = db;
     let table = common::name();
-    db.create_table(
+    sqlx_doris::operations::create_table(
+        &db,
         &definition(table.clone(), TableModel::Duplicate)
             .property("group_commit_interval_ms", "1000"),
     )
@@ -323,11 +339,11 @@ async fn synchronous_group_commit_sql_is_visible_on_return_and_failure_does_not_
         sqlx::query(sqlx::AssertSqlSafe(statement.clone()))
             .bind(1_i64)
             .bind(10_i64)
-            .execute(db.pool()),
+            .execute(&db),
         sqlx::query(sqlx::AssertSqlSafe(statement.clone()))
             .bind(2_i64)
             .bind(20_i64)
-            .execute(db.pool()),
+            .execute(&db),
     );
     left.unwrap();
     right.unwrap();
@@ -338,7 +354,7 @@ async fn synchronous_group_commit_sql_is_visible_on_return_and_failure_does_not_
     )))
     .bind(3_i64)
     .bind("not-an-integer")
-    .execute(db.pool())
+    .execute(&db)
     .await
     .unwrap_err();
     assert!(matches!(error, sqlx::Error::Database(_)), "{error:?}");
@@ -346,7 +362,7 @@ async fn synchronous_group_commit_sql_is_visible_on_return_and_failure_does_not_
     sqlx::query(sqlx::AssertSqlSafe(statement))
         .bind(4_i64)
         .bind(40_i64)
-        .execute(db.pool())
+        .execute(&db)
         .await
         .unwrap();
     assert_eq!(count(&db, &table).await, 3);
@@ -358,12 +374,12 @@ async fn synchronous_group_commit_sql_is_visible_on_return_and_failure_does_not_
 #[ignore = "requires Doris"]
 async fn values_transaction_rejects_queries_and_ddl_and_preserves_successes_after_statement_errors()
 {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let table = common::name();
-    db.create_table(&definition(table.clone(), TableModel::Duplicate))
+    sqlx_doris::operations::create_table(&db, &definition(table.clone(), TableModel::Duplicate))
         .await
         .unwrap();
-    let mut tx = db.doris_transaction().await.unwrap();
+    let mut tx = db.begin().await.unwrap();
     tx.execute(sqlx::AssertSqlSafe(format!(
         "INSERT INTO {table} VALUES (1,10)"
     )))
@@ -375,10 +391,7 @@ async fn values_transaction_rejects_queries_and_ddl_and_preserves_successes_afte
         format!("INSERT INTO {table} (missing) VALUES (1)"),
     ] {
         let error = tx.execute(sqlx::AssertSqlSafe(sql)).await.unwrap_err();
-        assert!(
-            matches!(error, Error::Database(sqlx::Error::Database(_))),
-            "{error:?}"
-        );
+        assert!(matches!(error, sqlx::Error::Database(_)), "{error:?}");
     }
     tx.execute(sqlx::AssertSqlSafe(format!(
         "INSERT INTO {table} VALUES (2,20)"
@@ -387,7 +400,7 @@ async fn values_transaction_rejects_queries_and_ddl_and_preserves_successes_afte
     .unwrap();
     tx.commit().await.unwrap();
     assert_eq!(count(&db, &table).await, 2);
-    let mut tx = db.doris_transaction().await.unwrap();
+    let mut tx = db.begin().await.unwrap();
     tx.execute(sqlx::AssertSqlSafe(format!(
         "INSERT INTO {table} VALUES (3,30)"
     )))
@@ -402,7 +415,7 @@ async fn values_transaction_rejects_queries_and_ddl_and_preserves_successes_afte
     .unwrap();
     tx.rollback().await.unwrap();
     assert_eq!(count(&db, &table).await, 2);
-    let mut tx = db.doris_transaction().await.unwrap();
+    let mut tx = db.begin().await.unwrap();
     tx.execute(sqlx::AssertSqlSafe(format!(
         "INSERT INTO {table} VALUES (5,50)"
     )))
@@ -418,22 +431,21 @@ async fn values_transaction_rejects_queries_and_ddl_and_preserves_successes_afte
 #[tokio::test]
 #[ignore = "requires Doris"]
 async fn insert_select_transactions_span_tables_without_reading_their_own_uncommitted_rows() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let source = common::name();
     let first = common::name();
     let second = common::name();
     for name in [&source, &first, &second] {
-        db.create_table(&definition(name.clone(), TableModel::Duplicate))
+        sqlx_doris::operations::create_table(&db, &definition(name.clone(), TableModel::Duplicate))
             .await
             .unwrap();
     }
-    db.pool()
-        .execute(sqlx::AssertSqlSafe(format!(
-            "INSERT INTO {source} VALUES (1,10),(2,20)"
-        )))
-        .await
-        .unwrap();
-    let mut tx = db.doris_transaction().await.unwrap();
+    db.execute(sqlx::AssertSqlSafe(format!(
+        "INSERT INTO {source} VALUES (1,10),(2,20)"
+    )))
+    .await
+    .unwrap();
+    let mut tx = db.begin().await.unwrap();
     tx.execute(sqlx::AssertSqlSafe(format!(
         "INSERT INTO {first} SELECT * FROM {source}"
     )))
@@ -444,26 +456,21 @@ async fn insert_select_transactions_span_tables_without_reading_their_own_uncomm
     )))
     .await
     .unwrap();
-    let error = tx
-        .execute(sqlx::AssertSqlSafe(format!(
-            "INSERT INTO {first} VALUES (3,30)"
-        )))
-        .await
-        .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("insert into values and insert into select"),
-        "{error:?}"
-    );
+    // SQLx's Doris transaction path normalizes VALUES to INSERT SELECT,
+    // allowing one consistent Doris write-transaction mode without replay.
+    tx.execute(sqlx::AssertSqlSafe(format!(
+        "INSERT INTO {first} VALUES (3,30)"
+    )))
+    .await
+    .unwrap();
     tx.commit().await.unwrap();
-    assert_eq!(count(&db, &first).await, 2);
+    assert_eq!(count(&db, &first).await, 3);
     assert_eq!(
         count(&db, &second).await,
         0,
         "uncommitted writes must not be read"
     );
-    let mut tx = db.doris_transaction().await.unwrap();
+    let mut tx = db.begin().await.unwrap();
     tx.execute(sqlx::AssertSqlSafe(format!(
         "INSERT INTO {first} SELECT * FROM {source}"
     )))
@@ -475,11 +482,11 @@ async fn insert_select_transactions_span_tables_without_reading_their_own_uncomm
     .await
     .unwrap();
     tx.rollback().await.unwrap();
-    assert_eq!(count(&db, &first).await, 2);
+    assert_eq!(count(&db, &first).await, 3);
     assert_eq!(count(&db, &second).await, 0);
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT 42")
-            .fetch_one(db.pool())
+            .fetch_one(&db)
             .await
             .unwrap(),
         42
@@ -495,11 +502,12 @@ async fn insert_select_transactions_span_tables_without_reading_their_own_uncomm
 #[tokio::test]
 #[ignore = "requires Doris"]
 async fn filtered_insert_select_rolls_back_only_the_failed_statement_before_explicit_commit() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     let source = common::name();
     let target = common::name();
     for (table, length) in [(&source, 64), (&target, 3)] {
-        db.create_table(
+        sqlx_doris::operations::create_table(
+            &db,
             &TableDefinition::new(table.clone(), TableModel::Duplicate, ["id"])
                 .column(Column::new("id", T::BigInt).not_null())
                 .column(Column::new("payload", T::VarChar(length)))
@@ -508,13 +516,12 @@ async fn filtered_insert_select_rolls_back_only_the_failed_statement_before_expl
         .await
         .unwrap();
     }
-    db.pool()
-        .execute(sqlx::AssertSqlSafe(format!(
-            "INSERT INTO {source} VALUES (0,'a'),(1,'bb'),(2,'overlong')"
-        )))
-        .await
-        .unwrap();
-    let mut tx = db.doris_transaction().await.unwrap();
+    db.execute(sqlx::AssertSqlSafe(format!(
+        "INSERT INTO {source} VALUES (0,'a'),(1,'bb'),(2,'overlong')"
+    )))
+    .await
+    .unwrap();
+    let mut tx = db.begin().await.unwrap();
     tx.execute(sqlx::AssertSqlSafe(format!(
         "INSERT INTO {target} SELECT * FROM {source} WHERE id=0"
     )))
@@ -526,10 +533,7 @@ async fn filtered_insert_select_rolls_back_only_the_failed_statement_before_expl
         )))
         .await
         .unwrap_err();
-    assert!(
-        matches!(error, Error::Database(sqlx::Error::Database(_))),
-        "{error:?}"
-    );
+    assert!(matches!(error, sqlx::Error::Database(_)), "{error:?}");
     assert!(
         error.to_string().to_ascii_lowercase().contains("filter"),
         "{error:?}"
@@ -543,7 +547,7 @@ async fn filtered_insert_select_rolls_back_only_the_failed_statement_before_expl
     let ids: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT id FROM {target} ORDER BY id"
     )))
-    .fetch_all(db.pool())
+    .fetch_all(&db)
     .await
     .unwrap();
     assert_eq!(
@@ -560,12 +564,13 @@ async fn filtered_insert_select_rolls_back_only_the_failed_statement_before_expl
 #[tokio::test]
 #[ignore = "requires Doris"]
 async fn update_delete_transactions_follow_mow_light_delete_settings_and_rollback_across_tables() {
-    let db = common::client(Backend::Doris).await;
+    let db = common::client().await;
     for light_delete in [false, true] {
         let first = common::name();
         let second = common::name();
         for table in [&first, &second] {
-            db.create_table(
+            sqlx_doris::operations::create_table(
+                &db,
                 &definition(table.clone(), TableModel::Unique)
                     .property("enable_unique_key_merge_on_write", "true")
                     .property("enable_mow_light_delete", light_delete.to_string()),
@@ -581,11 +586,11 @@ async fn update_delete_transactions_follow_mow_light_delete_settings_and_rollbac
             .bind(i64::from(multiplier))
             .bind(2_i64)
             .bind(i64::from(2 * multiplier))
-            .execute(db.pool())
+            .execute(&db)
             .await
             .unwrap();
         }
-        let mut tx = db.doris_transaction().await.unwrap();
+        let mut tx = db.begin().await.unwrap();
         tx.execute(sqlx::AssertSqlSafe(format!(
             "DELETE FROM {first} WHERE id=1"
         )))
@@ -609,12 +614,12 @@ async fn update_delete_transactions_follow_mow_light_delete_settings_and_rollbac
             let actual: Vec<(i64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
                 "SELECT id,value FROM {table} ORDER BY id"
             )))
-            .fetch_all(db.pool())
+            .fetch_all(&db)
             .await
             .unwrap();
             assert_eq!(actual, expected);
         }
-        let mut tx = db.doris_transaction().await.unwrap();
+        let mut tx = db.begin().await.unwrap();
         tx.execute(sqlx::AssertSqlSafe(format!(
             "UPDATE {first} SET value=999 WHERE id=2"
         )))
@@ -626,7 +631,7 @@ async fn update_delete_transactions_follow_mow_light_delete_settings_and_rollbac
         .await
         .unwrap();
         tx.rollback().await.unwrap();
-        let mut tx = db.doris_transaction().await.unwrap();
+        let mut tx = db.begin().await.unwrap();
         tx.execute(sqlx::AssertSqlSafe(format!(
             "INSERT INTO {first} SELECT * FROM {second}"
         )))
@@ -656,7 +661,7 @@ async fn update_delete_transactions_follow_mow_light_delete_settings_and_rollbac
             let actual: Vec<(i64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
                 "SELECT id,value FROM {table} ORDER BY id"
             )))
-            .fetch_all(db.pool())
+            .fetch_all(&db)
             .await
             .unwrap();
             assert_eq!(actual, expected, "rollback must undo both table changes");

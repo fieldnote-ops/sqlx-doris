@@ -1,50 +1,93 @@
 [package]
 name = "sqlx-doris"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "SQLx MySQL and Apache Doris connections, native types, and operations"
+description = "Standalone Apache Doris driver for SQLx"
 readme = "README.md"
 repository.workspace = true
-homepage.workspace = true
-keywords = ["sqlx", "doris", "mysql", "database", "async"]
+keywords = ["sqlx", "doris", "database", "async"]
 categories = ["database"]
-include = ["src/**", "examples/**", "tests/**", "README.md", "README.en.md", "LICENSE", "Cargo.toml", "Cargo.lock"]
+include = [
+    "src/**",
+    "examples/**",
+    "tests/**",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE",
+    "Cargo.toml",
+    "Cargo.lock",
+]
+
+[features]
+default = []
+macros = ["dep:sqlx-doris-macros", "sqlx-doris-macros/query"]
+migrate = ["sqlx-doris-core/migrate"]
+cli = ["migrate", "dep:sqlx-doris-cli"]
+cli-admin = ["cli", "sqlx-doris-cli/admin"]
+cli-admin-kafka = ["cli-admin", "sqlx-doris-cli/kafka-admin"]
+operations = ["dep:sqlx-doris-ops", "sqlx-doris-ops/helpers"]
+stream-load = ["operations", "sqlx-doris-ops/stream-load"]
+
+[[bin]]
+name = "cargo-sqlx-doris"
+path = "src/bin/cargo-sqlx-doris.rs"
+required-features = ["cli"]
 
 [[example]]
 name = "stream_load"
 required-features = ["stream-load"]
 
-[[example]]
-name = "query_macro"
-required-features = ["macros"]
-
-[[example]]
-name = "doris_query_macro"
-required-features = ["macros"]
-
-[features]
-default = ["stream-load"]
-stream-load = ["dep:reqwest", "dep:uuid", "dep:tokio-util"]
-# Gates the compile-time-macro examples. Those examples use the upstream SQLx macros,
-# which this workspace patches onto the bundled driver; applications need no patch.
-macros = []
-
 [dependencies]
-sqlx-core.workspace = true
-sqlx-mysql = { path = "../sqlx-mysql", version = "=0.9.0", features = ["json", "bigdecimal", "chrono"] }
-tokio.workspace = true
+sqlx-doris-ops = { path = "../sqlx-doris-ops", version = "=0.2.0", default-features = false, optional = true }
+sqlx-doris-core = { path = "../sqlx-doris-core", version = "=0.2.0" }
+sqlx-doris-macros = { path = "../sqlx-doris-macros", version = "=0.2.0", default-features = false, optional = true }
+sqlx-doris-cli = { path = "../sqlx-doris-cli", version = "=0.2.0", default-features = false, optional = true }
+
+[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }
+sqlx = { workspace = true, features = ["migrate"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+serde_json.workspace = true
+futures-util = "0.3"
 bigdecimal.workspace = true
 chrono.workspace = true
 serde.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream"], optional = true }
-uuid = { version = "1", features = ["v4"], optional = true }
-tokio-util = { version = "0.7", features = ["io"], optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream"] }
 
-[dev-dependencies]
-sqlx = { workspace = true, features = ["macros"] }
-tokio.workspace = true
-futures-util = "0.3"
+[[example]]
+name = "native_types"
+required-features = ["operations"]
+
+[[example]]
+name = "benchmark"
+required-features = ["operations"]
+
+[[example]]
+name = "benchmark_workloads"
+required-features = ["stream-load"]
+
+[[test]]
+name = "auth_tls_live"
+required-features = ["operations"]
+
+[[test]]
+name = "complex_bindings"
+required-features = ["operations"]
+
+[[test]]
+name = "materialized_view_live"
+required-features = ["operations"]
+
+[[test]]
+name = "operations_live"
+required-features = ["operations"]
+
+[[test]]
+name = "schema_live"
+required-features = ["operations"]
+
+[[test]]
+name = "types_extended"
+required-features = ["operations"]

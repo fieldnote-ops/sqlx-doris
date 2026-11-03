@@ -1,0 +1,39 @@
+[package]
+name = "sqlx-doris-macros"
+version = "0.2.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Compile-time implementation for sqlx-doris"
+readme = "README.md"
+include = ["src/**", "README.md", "README.zh-CN.md", "LICENSE", "Cargo.toml"]
+
+[lib]
+proc-macro = true
+
+[features]
+default = []
+query = [
+    "dep:sqlx-doris-core",
+    "dep:sqlx-macros-core",
+    "dep:proc-macro2",
+    "dep:proc-macro-crate",
+    "dep:quote",
+    "dep:syn",
+    "sqlx-macros-core/macros",
+    "sqlx-macros-core/_rt-tokio",
+]
+
+[dependencies]
+sqlx-doris-core = { path = "../sqlx-doris-core", version = "=0.2.0", features = ["macro-support"], optional = true }
+sqlx-macros-core = { version = "=0.9.0", default-features = false, optional = true }
+proc-macro2 = { workspace = true, optional = true }
+proc-macro-crate = { version = "3", optional = true }
+quote = { workspace = true, optional = true }
+syn = { workspace = true, optional = true }
+
+[dev-dependencies]
+proc-macro2.workspace = true
+quote.workspace = true
+syn.workspace = true

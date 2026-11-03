@@ -1,35 +1,40 @@
-# 依赖、来源与许可证
+<a name="doc-top"></a>
 
-简体中文 | [English](DEPENDENCIES.en.md)
+# Dependencies and licenses
 
-SDK 使用 Apache-2.0。随附的 sqlx-mysql 保留上游包名、0.9.0 版本号及 Apache-2.0 OR MIT 双许可证，全文随源码和配套包提供。
-它以源码形式位于 `crates/sqlx-mysql`，由 SDK 的 path 依赖带入，应用不需要补丁配置；安装方式见[安装指南](INSTALLATION.md)。
+[English](DEPENDENCIES.md) | [简体中文](DEPENDENCIES.zh-CN.md)
 
-## 驱动来源
+[Documentation](README.md)
 
-原始 sqlx-mysql 0.9.0 crate 的 SHA256 为：
+See the [five-package diagram](ARCHITECTURE.md#doc-packages) for required/optional dependency directions and the [integration map](ARCHITECTURE.md#doc-flows) for execution paths.
 
-```text
-90b8020fe17c5f2c245bfa2505d7ef59c5604839527c740266ad2214acebea27
-```
+Apache-2.0. Applications declare `sqlx-doris` as their sole Doris extension and upstream `sqlx` for generic APIs, derives and migration macros. All five implementation packages have aligned versions and exact internal dependencies.
 
-patches/sqlx-mysql-provenance.json 记录来源、文件哈希和许可证，三份 patch 可重建当前驱动。
-`check-sqlx-patch` 检查当前文件，`verify-delivery` 检查补丁重建和配套包内容，命令前提见[测试说明](TESTING.md)。
+| Package | Responsibility | Enabled by |
+| --- | --- | --- |
+| sqlx-doris | Public Doris types/macros and thin installed binary | Application dependency |
+| sqlx-doris-core | Sole Database identity, protocol, bindings, types, connections and migration traits | Default |
+| sqlx-doris-macros | Checked queries using SQLx macro infrastructure | macros |
+| sqlx-doris-ops | Schema/MV, HTTP ingestion, identity/drain/diagnosis and read-only Kafka primitives | operations, stream-load, cli/cli-admin/cli-admin-kafka; feature gated |
+| sqlx-doris-cli | Arguments, prepare/Cargo integration, human output and one JSON protocol | cli, cli-admin or cli-admin-kafka |
 
-## 发布到 crates.io 的状态
+Internal packages depend on core, never the facade. Rust's orphan rules keep SQLx Migrate implementations beside the Doris identity in core. Maintenance workflows belong to ops. Ops accepts explicit requests and per-call evidence, with no clap, process exits, printing or global command state. CLI owns interaction, rendering and migration-runner lock/state-table preparation. Shared ops migration-history reads and source comparison remain read-only.
 
-0.1.0 已发布：`sqlx-doris` 0.1.0 与驱动 `sqlx-doris-mysql` 0.9.0（`sqlx-mysql` 名称被上游占用，故改名发布，
-SDK 通过依赖重命名引用，库名仍是 `sqlx_mysql`）。发布顺序为先驱动、后 SDK；版本不可撤回，只能 yank。
-仓库内保留 `crates/sqlx-mysql` 原名和本地补丁配置，供本仓库测试与编译期宏示例使用；
-发布产物来自改名的发布视图，两者源码一致。
-安装方式见[安装指南](INSTALLATION.md)。
+Default and migrate-only normal/build graphs exclude ops, CLI, generic sqlx, query macros and HTTP clients. operations adds application helpers; stream-load adds HTTP ingestion. cli adds clap, Cargo integration and shared configuration/results/read-only migration history; cli-admin enables maintenance HTTP, and cli-admin-kafka enables Kafka wire/TLS. No CLI profile implicitly enables driver query macros or application Stream Load. Applications select upstream SQLx features explicitly.
 
-## 锁定依赖的安全说明
+- Exact sqlx-core 0.9.0 supplies traits, queries, pools, transactions, TLS and logging. Internal runtime code uses it directly, without generic API forwarding.
+- Tokio/futures/async-stream/bytes/bitflags/url support the asynchronous protocol.
+- sha1 serves only the server's mysql_native_password challenge.
+- serde/serde_json/chrono/bigdecimal preserve values and precision; core owns shared complex-value encoding.
+- sqlx-macros-core/syn/quote/proc-macro-crate serve compile-time macros and renamed dependencies.
+- reqwest/percent-encoding belong to optional ops maintenance HTTP. Stream Load is enabled separately.
+- Kafka reads use rustls/tokio-rustls without a C/Java Kafka client.
+- clap/sha2 and CLI runtime features belong to the CLI package.
 
-本文对应源码仓库的 Cargo.lock；应用接入后以自己的 Cargo.lock 为准。
-其中 block-buffer 0.10.4 命中 GHSA-qwgh-2vcv-g2f7 公布的版本范围。
-已核对的锁定源码将 pos 独立存储，且没有 ReadBuffer，与公告描述的实现不同；这项复核不能代替完整依赖审计。
-上游修复线为 0.12.1，本版本仍使用 Cargo.lock 记录的依赖。
+Active normal/build graphs exclude sqlx-mysql, PostgreSQL and SQLite drivers. Cargo.lock/metadata may list inactive optional upstream packages. scripts/test-consumer uses eleven independent manifests for default, migrate, macros, macros+migrate, operations, stream-load, three CLI profiles, minimal upstream SQLx and upstream migrate! without Doris query macros. It also checks full feature unification, six ops combinations, CLI admin unified with independently enabled ops Kafka, and the macro package with query disabled.
 
-依据：[上游公告](https://github.com/RustCrypto/utils/security/advisories/GHSA-qwgh-2vcv-g2f7)、
-[上游修复](https://github.com/RustCrypto/utils/pull/1487)。升级或分发应用时，需要按应用自己的锁定版本重新核对许可证和公告。
+sqlx-core/offline is intentional: SQLx 0.9 gates Executor::describe and ColumnOrigin serialization behind it. This keeps Executor complete when an application independently enables upstream macros. Doris description serialization and bitflags/serde require macro-support; the macro package has no normal/build dependencies with query disabled. Ops helper errors require helpers; maintenance/Kafka observation state stays out of helpers-only builds. Default runtime dependencies do not enable tokio-macros or multithreaded execution; applications, tests and CLI select these explicitly.
+
+scripts/test-package verifies all five packages through Cargo workspace packaging. Each run uses a fresh external registry URL and target/build paths to avoid stale same-version unpublished archives. Verified .crate files remain in external artifacts. Users need no driver patches. Mirror users should prepare the official external registry cache using cargo fetch --manifest-path <checkout>/Cargo.toml from an external working directory.
+
+Cargo.lock records tested dependencies, which retain their own licenses. scripts/test-install installs the unchanged verified archives and checks a fresh SQLx application, prepare and forced offline builds. Test registry routing for unpublished packages exists only in the external acceptance directory.

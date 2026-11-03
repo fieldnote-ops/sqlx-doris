@@ -1,33 +1,78 @@
-# 兼容范围和数据库差异
+<a name="doc-top"></a>
 
-简体中文 | [English](COMPATIBILITY.en.md)
+# Compatibility and limits
 
-以下范围已在 SQLx 0.9.0、MySQL 8.4.13 和官方 Doris 4.1.5 上测试。其他版本和未列出的 SQL 写法需要在目标实例验证。
+[English](COMPATIBILITY.md) | [简体中文](COMPATIBILITY.zh-CN.md)
 
-| 能力 | 共同使用方式 | 边界 |
-| --- | --- | --- |
-| 类型身份 | 原生 MySql/Pool/Connection/Row/Transaction | 驱动随 SDK 一起构建，应用无需补丁；SQLx 版本一致 |
-| CRUD/DTO/流 | 原 SQL、`.bind()`、`FromRow`、`QueryBuilder` | 服务端校验 SQL/表模型；流提前 drop 后正确收尾或关闭连接 |
-| VALUES/DEFAULT | 列清单、静态默认值、NULL、多行写 | 不猜 schema、不拆批；动态默认值、空 VALUES、自增序列保持后端语义 |
-| 分页 | LIMIT ?、LIMIT ? OFFSET ?、LIMIT ?,? | 原生整数参数；复杂表达式、显式 prepare/在线 describe 元数据有限 |
-| BLOB 条件 | 简单列=、<>、!=、<=>、<、<=、>、>=、IN/NOT IN、BETWEEN/NOT BETWEEN | 保留字节顺序/NULL 三值语义；不模拟 LIKE、任意 CASE/函数/元组/子查询或非 NULL 数值混用 |
-| BLOB 写入 | `Vec<u8>`与原 VALUES/`.bind()` | Doris 内部 STRING 采用公开表达式，不表示 OLAP 支持 BLOB/VARBINARY 列 |
-| TIME | `MySqlTime`、chrono::`NaiveTime`，原生绑定与无损读取 | NaiveTime 拒绝负值/跨天；MySqlTime 范围与 Doris 完整微秒边界区分 |
-| 显式 TIME | `types::Time` | ±838:59:59.999999；Doris 内部 OLAP 不支持 TIME 列，查询与显式 STRING 表示分开 |
-| 大整数/Decimal | `LargeInt`、`BigDecimal` | 按目标 precision/scale 舍入或拒绝溢出，不经过浮点中转 |
-| 复杂类型 | Array/Map/Struct/Variant 及显式投影/构造器 | MAP 可保留非字符串键；VARIANT 可能归一化、丢失根值展示信息 |
-| 日期/时区 | Chrono 与 TimestampTz | 精度/时区按列定义；TimestampTz 拒绝亚微秒和闰秒 |
-| 事务 | 顶层 `Transaction<MySql>` | Doris 事务内查询/DDL、savepoint 等不模拟；手工 BEGIN/raw guard 有明确限制 |
-| 回执/冲突 | 各后端原生结果 | 直接返回数据库结果；两库的 rows_affected、last_insert_id 和主键模型含义可能不同 |
-| Group Commit | Off/Sync/Async 显式选择 | Async 接受与可见性不同，失败不自动重放 |
-| HTTP 导入 | StreamLoadClient 和 LoadReceipt | 2PC 后续提交/回滚由调用方执行；HTTPS 按部署配置证书 |
+[Documentation](README.md)
 
-TIME 列表兼容只处理显式 TIME 参数；只有字符串的条件不会推断列类型。
-Doris TIME 元数据在执行前选择无损文本读取，普通结果保持 prepared。
-敏感字符串使用实际会话 sql_mode，不缓存猜测模式。
+Validated with Rust 1.94+, SQLx Core 0.9.0 and official Doris 4.1.5. The standalone driver implements Doris's public MySQL-compatible wire protocol.
 
-参数兼容支持的 SQL 形状有限。复杂字节谓词、混合非 NULL 类型、歧义注释或不可无损编码的值会明确报错，
-参数按类型编码和 SQL 词法处理；不确定写入不会自动重试。
+Older-version adaptation is out of scope. Later Doris versions require metadata, privilege and transaction revalidation; safety-sensitive version gates are not relaxed automatically.
 
-扩展操作封装部分 Doris 公开 SQL/HTTP 能力。FE 管理、CDC、跨库事务、自动双写、迁表和运行中迁池不在本库范围内。
-性能受 SQL、表模型、索引、批次和环境影响，不承诺全场景与原生 SQLx 性能等价。
+| Capability | Scope |
+| --- | --- |
+| Runtime SQLx APIs | query/query_as/query_scalar/raw_sql/QueryBuilder/FromRow |
+| Pools | Native Pool<Doris> configuration, timeouts and lifecycle hooks |
+| Prepared statements | COM_STMT_PREPARE/EXECUTE/CLOSE and per-connection LRU cache |
+| Transactions | Top-level Doris write transactions; no nested transactions/savepoints/custom BEGIN |
+| Values | Integers, floats, strings, bytes, NULL, decimals, DATE/DATETIME, JSON and explicit Doris types |
+| Ingestion | Optional Stream Load; SQL writes follow server syntax |
+| TLS | FE TLS, CA/hostname verification and client certificates |
+| Authentication | mysql_native_password |
+| Checked queries | Six query!/query_file! macros, renamed dependencies, output/count checks; weak parameter typing |
+| Offline builds | SQLx Describe JSON, external SQLX_OFFLINE_DIR, prepare/--check |
+| Migrations | Migrator, migrate!, reversible files, dirty/checksum, durable exclusion, async ALTER waiting and explicit recovery |
+| CLI | cargo sqlx-doris prepare/migrate/database; cli-admin: admin lock/identity/drain/routine/diagnose/migrate repair; cli-admin-kafka: admin kafka; scoped drain observations, exact registered BROKER LOAD/ROLLUP/MV-task termination; uniform CLI recovery checks |
+| Any / Doris registration in upstream cargo sqlx | Not provided |
+| Unix sockets, compression, LOCAL INFILE, concatenated ordinary queries | Not provided |
+
+<a name="doc-contents"></a>
+
+## Contents
+
+- [Precision and binding](#doc-precision)
+- [Doris semantics](#doc-semantics)
+- [Macro and migration limits](#doc-migrations)
+
+<a name="doc-precision"></a>
+
+## Precision and binding
+
+Integers are range-checked. Non-finite float parameters are rejected. Decimal and LARGEINT values never pass through floating point. Unsupported temporal precision is rejected. TIME supports the full Doris microsecond boundary and cannot be stored in OLAP columns.
+
+Some Doris binary TIME results lose fractional boundaries. PREPARE metadata selects text before execution. If the FE reveals TIME only during execution, the driver fails and retires the connection without replay. Use raw_sql or an explicit STRING projection for such expressions.
+
+Bytes use validated Doris public byte functions and ASCII hex arguments. Checked simple comparisons, IN/NOT IN and BETWEEN preserve NULLs. Ambiguous SQL/coercion is rejected; use explicit byte functions for complex expressions. Quotes, NUL, comments and question marks inside parameters stay data.
+
+Bound LIMIT/OFFSET require native nonnegative integers within i64. Text binding uses the actual sql_mode; transactions read it before BEGIN. Do not change sql_mode inside a transaction.
+
+<a name="doc-semantics"></a>
+
+## Doris semantics
+
+Affected-row counts, table models, VARIANT behavior and Group Commit visibility follow Doris. See the official [prepared statement](https://doris.apache.org/docs/4.x/key-features/prepared-statement/) and [transaction](https://doris.apache.org/docs/4.x/data-operate/transaction/) documentation.
+
+<a name="doc-migrations"></a>
+
+## Macro and migration limits
+
+See [checked queries](USAGE.md#doc-macros) and [migrations](MIGRATIONS.md). Doris expression and parameter metadata is incomplete. Ambiguous outputs require explicit type overrides, and nullability defaults conservatively. Offline caches must match the schema and driver version.
+
+Migrations use non-atomic Doris DDL and durable recovery markers, with no file-wide rollback or automatic retries. Scripts support table/ordinary-view/index DDL and ordinary DML/queries. Async materialized views and ingestion tasks use dedicated APIs. ALTER targets the current database and waits for COLUMN/ROLLUP terminal states. Atomic ADD of UUID partitions over a fixed exclusive range provides main and transition lock exclusion among runners using this protocol/version in the same database. Release/recovery uses a durable transition gate for owner validation plus deletion. UUID partitions over a fixed exclusive range provide atomic exclusion; cleanup addresses only its own partition, fencing successors from delayed DROP; interrupted gates require explicit serialized administrative recovery as described in [Recovery](RECOVERY.md).
+
+[Doris Schema Change](https://doris.apache.org/docs/4.x/table-design/schema-change/) describes synchronous light changes and asynchronous jobs.
+
+CLI recover-transition previews removal of an interrupted v2 owner partition before explicit exclusive maintenance, retaining the parent and anchor. Earlier unreleased comment-only main/transition protocols are not converted automatically; unknown partition metadata fails closed. All old actors/commands must be stopped, with one administrator across machines. There is no timeout takeover, and main locks/history are preserved. See [Recovery](RECOVERY.md).
+
+See [ALTER TABLE PARTITION](https://doris.apache.org/docs/4.x/sql-manual/sql-statements/table-and-view/table/ALTER-TABLE-PARTITION/) for synchronous partition operations, range syntax and the requirement to retain at least one partition. Overlapping-range exclusion and delayed old-partition deletion are additionally verified on Doris 4.1.5; see Testing.
+
+Migration ownership checkpoints stop later work after observed lock loss; they are not atomic SQL fencing. Session KILL cannot prevent reconnects or undo committed work/submitted jobs. Historical connection IDs are never used for automatic termination or takeover. Exclusive recovery still requires external runner isolation; see [Recovery](RECOVERY.md).
+
+Dedicated-identity CLI automation is verified only on a single master FE with Doris 4.1.5 built-in authentication/authorization. Multi-FE, LDAP/Ranger, unknown versions, expanded grants and host variants fail closed. Deletion cuts off future login/permission checks, while admitted commits and jobs may continue. Locks/history are never recovered automatically; see [Recovery](RECOVERY.md).
+
+CLI explicit termination additionally supports registered BROKER LOAD through JobId/TransactionId/ListenerId binding and transaction-ID abort with terminal verification, currently on shared-nothing 4.1.5 with one master FE/one live BE. Unregistered LOAD and ordinary existing Routine Load have no name-based cancellation/stop. See [Recovery](RECOVERY.md) for network, version, race and recovery limits.
+
+Managed Routine Load supports create/inspect/explicit stop under permanent UUID non-reuse, on single-FE built-in-auth shared-nothing 4.1.5 single-table Kafka jobs. STOP still selects by name; raw reuse, metadata restoration or namespace bypass is unfenced, and old jobs are not adopted. See [Managed Routine Load](ROUTINE_LOAD.md).
+
+Migration table validation uses `DorisConnection::migration_table_identifier`. Local identifier/cross-database failures use SQLx `Error::Configuration`; protocol/I/O metadata failures retain their original categories so the CLI does not misclassify malformed server replies as input errors.

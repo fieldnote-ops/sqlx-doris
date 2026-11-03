@@ -1,40 +1,16 @@
 #!/usr/bin/env python3
-"""Run formatting, tests, API/build checks and package verification."""
-import json
+"""Verify the standalone driver, documentation, formatting, consumers and package."""
 import os
-from pathlib import Path
-import subprocess
 import sys
+from pathlib import Path
 
-project = Path(__file__).resolve().parents[1]
 if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
-    os.execv(
-        str(project / "scripts/dev"),
-        [
-            str(project / "scripts/dev"),
-            sys.executable,
-            "-B",
-            str(Path(__file__).resolve()),
-        ],
-    )
-os.chdir(project)
-root = Path(os.environ["SQLX_DORIS_ARTIFACTS_DIR"])
-root.mkdir(parents=True, exist_ok=True)
-modified = json.loads((project / "patches/sqlx-mysql-provenance.json").read_text())[
-    "modified_files"
-]
+    dev = Path(__file__).resolve().parent / "dev"
+    os.execv(str(dev), [str(dev), sys.executable, "-B", *sys.argv])
+from _common import *
+
 commands = [
     [sys.executable, "-B", "scripts/check-docs"],
-    [sys.executable, "-B", "scripts/check-sqlx-patch"],
-    [
-        "rustfmt",
-        "--edition",
-        "2021",
-        "--config",
-        "skip_children=true",
-        "--check",
-        *["crates/sqlx-mysql/" + name for name in modified],
-    ],
     [sys.executable, "-B", "scripts/format", "--check"],
     [
         "cargo",
@@ -43,68 +19,37 @@ commands = [
         "--offline",
         "--workspace",
         "--all-targets",
+        "--all-features",
         "--",
         "-D",
         "warnings",
     ],
     [sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests", "-v"],
-    ["cargo", "test", "--locked", "--offline", "--workspace"],
-    ["cargo", "test", "--locked", "--offline", "-p", "sqlx-mysql", "--lib"],
+    ["cargo", "test", "--locked", "--offline", "--workspace", "--all-features"],
     [
         "cargo",
         "check",
         "--locked",
         "--offline",
-        "-p",
-        "sqlx-doris",
+        "--workspace",
         "--no-default-features",
         "--all-targets",
     ],
     [
         "cargo",
-        "check",
+        "doc",
         "--locked",
         "--offline",
-        "-p",
-        "sqlx-doris",
+        "--workspace",
         "--all-features",
-        "--lib",
+        "--no-deps",
     ],
-    ["cargo", "doc", "--locked", "--offline", "-p", "sqlx-doris", "--no-deps"],
-    [
-        "cargo",
-        "package",
-        "--locked",
-        "--offline",
-        "-p",
-        "sqlx-doris",
-        "--allow-dirty",
-        "--config",
-        'patch.crates-io.sqlx-mysql.path="' + str(project / "crates/sqlx-mysql") + '"',
-    ],
-    [sys.executable, "-B", "scripts/package-compat"],
-    [sys.executable, "-B", "scripts/verify-delivery"],
-    [
-        sys.executable,
-        "-B",
-        "scripts/check-docs",
-        "--bundle",
-        str(
-            Path(os.environ["CARGO_TARGET_DIR"])
-            / "package/sqlx-doris-compat-0.1.0.tar.gz"
-        ),
-    ],
+    [sys.executable, "-B", "scripts/test-package"],
+    [sys.executable, "-B", "scripts/test-consumer"],
+    [sys.executable, "-B", "scripts/test-docs"],
 ]
 env = os.environ.copy()
-env["RUSTDOCFLAGS"] = "-D missing-docs -D rustdoc::broken_intra_doc_links"
-with (root / "check.log").open("w") as output:
-    for command in commands:
-        output.write("$ " + " ".join(command) + "\n")
-        output.flush()
-        print("Running:", " ".join(command), flush=True)
-        code = subprocess.run(
-            command, stdout=output, stderr=subprocess.STDOUT, env=env
-        ).returncode
-        if code:
-            raise SystemExit(f"Check failed ({code}); see {root / 'check.log'}")
-print(f"Checks passed: {root / 'check.log'}")
+env["RUSTDOCFLAGS"] = (
+    "-D missing-docs -D rustdoc::broken_intra_doc_links -D rustdoc::invalid_html_tags"
+)
+run(commands, "check.log", env)

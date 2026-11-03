@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""Measure read-only human/JSON recovery diagnostics on a reconciled idle fixture."""
+import os
+import sys
+from pathlib import Path
+
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    dev = Path(__file__).resolve().parent / "dev"
+    os.execv(str(dev), [str(dev), sys.executable, "-B", *sys.argv])
+from _common import *
+import argparse
+import json
+import statistics
+import time
+import uuid
+from datetime import datetime, timezone
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--retired-identity", required=True)
+parser.add_argument("--receipt")
+parser.add_argument("--connection-file")
+parser.add_argument("--topic")
+parser.add_argument("--checkpoint")
+parser.add_argument("--offset", action="append", default=[])
+args = parser.parse_args()
+kafka_requested = any((args.connection_file, args.topic, args.checkpoint, args.offset))
+if kafka_requested and not all(
+    (args.connection_file, args.topic, args.checkpoint, args.offset)
+):
+    parser.error(
+        "Kafka measurement requires connection-file, topic, checkpoint and explicit offsets"
+    )
+if not os.environ.get("DATABASE_URL") and not os.environ.get("DORIS_TEST_URL"):
+    raise SystemExit("An independent administrator Doris URL is required")
+run(
+    [
+        [
+            "cargo",
+            "build",
+            "--release",
+            "--locked",
+            "--offline",
+            "-p",
+            "sqlx-doris",
+            "--features",
+            "cli-admin-kafka" if kafka_requested else "cli-admin",
+            "--bin",
+            "cargo-sqlx-doris",
+        ]
+    ],
+    "benchmark-diagnostics-build.log",
+)
+cli = Path(os.environ["CARGO_TARGET_DIR"]) / "release/cargo-sqlx-doris"
+diagnose = ["admin", "diagnose", "--retired-identity", args.retired_identity]
+if args.receipt:
+    diagnose += ["--receipt", args.receipt]
+if kafka_requested:
+    diagnose += [
+        "--connection-file",
+        args.connection_file,
+        "--topic",
+        args.topic,
+        "--checkpoint",
+        args.checkpoint,
+    ]
+    for offset in args.offset:
+        diagnose += ["--offset", offset]
+profiles = {
+    "lock_json": ["admin", "lock", "status", "--json"],
+    "drain_json": [
+        "admin",
+        "drain",
+        "status",
+        "--name",
+        args.retired_identity,
+        "--json",
+    ],
+    "diagnose_human": diagnose,
+    "diagnose_json": [*diagnose, "--json"],
+}
+records = []
+started = datetime.now(timezone.utc).isoformat()
+for trial in range(5):
+    order = list(profiles)
+    if trial % 2:
+        order.reverse()
+    for name in order:
+        begin = time.perf_counter()
+        result = subprocess.run(
+            [str(cli), *profiles[name]], capture_output=True, text=True, timeout=60
+        )
+        elapsed = (time.perf_counter() - begin) * 1000
+        if result.returncode:
+            raise SystemExit(
+                f"{name} did not complete cleanly; use an idle, reconciled, retired-identity fixture"
+            )
+        if name.endswith("json"):
+            value = json.loads(result.stdout)
+            assert not result.stderr and value["schema"] == "sqlx-doris-cli-result-v1"
+            assert value["server_read_only"] and not value["safe_to_recover"]
+        records.append(dict(trial=trial, profile=name, ms=elapsed))
+output = artifacts / f"benchmark-diagnostics-{uuid.uuid4().hex}.json"
+output.write_text(
+    json.dumps(
+        dict(
+            measured_from_utc=started,
+            measured_to_utc=datetime.now(timezone.utc).isoformat(),
+            receipt_requested=bool(args.receipt),
+            kafka_requested=kafka_requested,
+            records=records,
+            median_ms={
+                name: statistics.median(
+                    r["ms"] for r in records if r["profile"] == name
+                )
+                for name in profiles
+            },
+            scope="serial release CLI process wall time; no data throughput, atomic snapshot or recovery authorization",
+        ),
+        indent=2,
+    )
+    + "\n"
+)
+print(output)

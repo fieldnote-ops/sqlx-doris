@@ -1,0 +1,46 @@
+[package]
+name = "sqlx-doris-ops"
+version = "0.2.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Doris operation primitives used by sqlx-doris"
+readme = "README.md"
+include = ["src/**", "README.md", "README.zh-CN.md", "LICENSE", "Cargo.toml"]
+
+[features]
+default = []
+cli-support = ["sqlx-doris-core/migrate"]
+helpers = ["sqlx-doris-core/value-support", "dep:thiserror"]
+stream-load = [
+    "helpers",
+    "dep:bytes",
+    "dep:futures-util",
+    "dep:reqwest",
+    "reqwest/json",
+    "reqwest/stream",
+    "dep:uuid",
+    "tokio/rt",
+]
+maintenance = ["cli-support", "dep:reqwest", "dep:percent-encoding", "dep:uuid"]
+kafka = ["dep:rustls", "dep:tokio-rustls", "dep:uuid"]
+
+[dependencies]
+sqlx-doris-core = { path = "../sqlx-doris-core", version = "=0.2.0" }
+sqlx-core.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror = { workspace = true, optional = true }
+uuid = { version = "1", features = ["v4"], optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"], optional = true }
+percent-encoding = { version = "2", optional = true }
+bytes = { version = "1", optional = true }
+futures-util = { version = "0.3", optional = true }
+rustls = { version = "0.23", default-features = false, features = ["std", "aws_lc_rs", "tls12"], optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws_lc_rs", "tls12"], optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+uuid = { version = "1", features = ["v4"] }

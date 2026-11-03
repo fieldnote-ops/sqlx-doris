@@ -25,7 +25,9 @@ args = parser.parse_args()
 subprocess.run(
     ["cargo", "fmt", "--all", *(["--", "--check"] if args.check else [])], check=True
 )
-standalone_rust = sorted(Path("tools").glob("*.rs"))
+standalone_rust = sorted(
+    [*Path("tools").glob("*.rs"), *Path("tests/fixtures").rglob("*.rs")]
+)
 if standalone_rust:
     subprocess.run(
         [

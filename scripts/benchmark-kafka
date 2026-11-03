@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""Measure read-only Kafka snapshot/preflight with explicit candidate offsets."""
+import os
+import sys
+from pathlib import Path
+
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    dev = Path(__file__).resolve().parent / "dev"
+    os.execv(str(dev), [str(dev), sys.executable, "-B", *sys.argv])
+from _common import *
+import argparse
+import json
+import statistics
+import time
+import uuid
+from datetime import datetime, timezone
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--connection-file", required=True)
+parser.add_argument("--topic", required=True)
+parser.add_argument("--offset", required=True, action="append")
+args = parser.parse_args()
+run(
+    [
+        [
+            "cargo",
+            "build",
+            "--release",
+            "--locked",
+            "--offline",
+            "-p",
+            "sqlx-doris",
+            "--features",
+            "cli-admin-kafka",
+            "--bin",
+            "cargo-sqlx-doris",
+        ]
+    ],
+    "benchmark-kafka-build.log",
+)
+cli = Path(os.environ["CARGO_TARGET_DIR"]) / "release/cargo-sqlx-doris"
+root = (
+    Path(os.environ["SQLX_DORIS_BUILD_ROOT"])
+    / "kafka-preflight-benchmark"
+    / uuid.uuid4().hex
+)
+root.mkdir(parents=True, mode=0o700)
+
+
+def call(*command):
+    begin = time.monotonic()
+    result = subprocess.run(
+        [
+            str(cli),
+            "admin",
+            "kafka",
+            *map(str, command),
+            "--connection-file",
+            args.connection_file,
+            "--topic",
+            args.topic,
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    elapsed = (time.monotonic() - begin) * 1000
+    if result.returncode or result.stderr:
+        raise SystemExit(
+            "Kafka benchmark did not obtain a successful observation; baseline files retained. No offsets or source data were changed."
+        )
+    value = json.loads(result.stdout)
+    assert (
+        value["server_read_only"]
+        and not value["kafka_continuation_verified"]
+        and not value["safe_to_recover"]
+    )
+    return elapsed, value
+
+
+measured_from_utc = datetime.now(timezone.utc).isoformat()
+records = []
+for trial in range(5):
+    path = root / f"{trial}.json"
+    snapshot_ms, saved = call("snapshot", "--output", path)
+    command = ["preflight", "--checkpoint", path]
+    for candidate in args.offset:
+        command.extend(["--offset", candidate])
+    preflight_ms, value = call(*command)
+    records.append(
+        dict(
+            trial=trial,
+            snapshot_ms=snapshot_ms,
+            preflight_ms=preflight_ms,
+            status=value["status"],
+        )
+    )
+summary = dict(
+    measured_from_utc=measured_from_utc,
+    measured_at_utc=datetime.now(timezone.utc).isoformat(),
+    topic=args.topic,
+    candidates=args.offset,
+    partitions=len(saved["current"]["partitions"]),
+    records=records,
+    median_ms={
+        key: statistics.median(record[key] for record in records)
+        for key in ("snapshot_ms", "preflight_ms")
+    },
+    scope="Read-only CLI process wall time with fresh benchmark-only baselines. No source writes, offset transfer/reset, throughput or complete-history attestation.",
+)
+path = artifacts / f"benchmark-kafka-{uuid.uuid4().hex}.json"
+path.write_text(json.dumps(summary, indent=2) + "\n")
+print(json.dumps(dict(report=str(path), median_ms=summary["median_ms"])))

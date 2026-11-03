@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+"""Package and verify all aligned packages together using Cargo's local overlay."""
+import os
+import sys
+from pathlib import Path
+
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    dev = Path(__file__).resolve().parent / "dev"
+    os.execv(str(dev), [str(dev), sys.executable, "-B", *sys.argv])
+from _common import *
+
+import tempfile
+import shutil
+import tarfile
+import re
+from urllib.parse import urlsplit, unquote
+
+packages = workspace_packages()
+
+# An overlay registry is immutable from Cargo's perspective. Reusing its URL
+# with the same unreleased versions can silently pick an older cached package.
+# Give each verification a fresh URL, retaining external dependency downloads.
+root = Path(os.environ["SQLX_DORIS_BUILD_ROOT"])
+with tempfile.TemporaryDirectory(prefix="package-", dir=root / "tmp-clean") as folder:
+    target = Path(folder) / "target"
+    env = os.environ.copy()
+    env["CARGO_TARGET_DIR"] = str(target)
+    # Cargo locates its overlay registry under build-dir, not just target-dir.
+    env["CARGO_BUILD_BUILD_DIR"] = str(Path(folder) / "build")
+    run(
+        [
+            [
+                "cargo",
+                "package",
+                "--locked",
+                "--offline",
+                "--workspace",
+                "--all-features",
+                "--allow-dirty",
+                "--registry",
+                "crates-io",
+                "--manifest-path",
+                str(project / "Cargo.toml"),
+            ]
+        ],
+        "package.log",
+        env=env,
+        cwd=root,
+    )
+    destination = artifacts / "packages"
+    destination.mkdir(exist_ok=True)
+    archives = list((target / "package").glob("*.crate"))
+    expected = {
+        f"{name}-{data['package']['version']}.crate" for name, data in packages.items()
+    }
+    if {archive.name for archive in archives} != expected:
+        raise SystemExit("expected exactly the five aligned verified package archives")
+    for archive in archives:
+        with tarfile.open(archive) as bundle:
+            members = {
+                Path(m.name).relative_to(archive.name.removesuffix(".crate")): m
+                for m in bundle.getmembers()
+                if m.isfile()
+            }
+            for readme in (Path("README.md"), Path("README.zh-CN.md")):
+                if readme not in members:
+                    raise SystemExit(
+                        f"Missing packaged language: {archive.name}/{readme}"
+                    )
+                content = bundle.extractfile(members[readme]).read().decode()
+                for target in re.findall(r"\[[^\]]*\]\(([^)]+)\)", content):
+                    url = urlsplit(target)
+                    if not url.scheme and url.path:
+                        relative = Path(unquote(url.path))
+                        if ".." in relative.parts or relative not in members:
+                            raise SystemExit(
+                                f"README link escapes source archive: {archive.name}: {target}"
+                            )
+        shutil.copy2(archive, destination / archive.name)

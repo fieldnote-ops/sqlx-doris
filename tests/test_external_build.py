@@ -21,6 +21,8 @@ class ExternalBuildTests(unittest.TestCase):
             env["SQLX_DORIS_EXTERNAL_VOLUME"] = str(volume)
         if build_root is not None:
             env["SQLX_DORIS_BUILD_ROOT"] = str(build_root)
+            # Let scripts/dev derive its offline-cache path from this root.
+            env.pop("SQLX_OFFLINE_DIR", None)
         return subprocess.run(
             [sys.executable, str(DEV), *args], env=env, capture_output=True, text=True
         )
@@ -42,7 +44,7 @@ class ExternalBuildTests(unittest.TestCase):
             "-c",
             (
                 "import os,tempfile,json; print(json.dumps([tempfile.gettempdir(),"
-                "os.environ['CARGO_HOME'],os.environ['CARGO_TARGET_DIR']]))"
+                "os.environ['CARGO_HOME'],os.environ['CARGO_TARGET_DIR'],os.environ['CARGO_BUILD_BUILD_DIR']]))"
             ),
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -52,6 +54,7 @@ class ExternalBuildTests(unittest.TestCase):
             [
                 str(root / "tmp-clean"),
                 str(root / "cargo-home"),
+                str(root / "target-clean"),
                 str(root / "target-clean"),
             ],
         )
@@ -66,7 +69,7 @@ class ExternalBuildTests(unittest.TestCase):
         env.pop("SQLX_DORIS_EXTERNAL_VOLUME", None)
         env.pop("SQLX_DORIS_DEV_ACTIVE", None)
         result = subprocess.run(
-            [sys.executable, str(DEV.parent / "verify-delivery"), "--help"],
+            [sys.executable, str(DEV.parent / "check"), "--help"],
             env=env,
             capture_output=True,
             text=True,
@@ -107,6 +110,9 @@ class ExternalBuildTests(unittest.TestCase):
 
     def test_internal_root_is_rejected(self):
         self.assertEqual(self.invoke("--print-env", volume="/").returncode, 2)
+
+    def test_preflight_does_not_leave_an_internal_target(self):
+        self.assertFalse((DEV.parent.parent / "target").exists())
 
     def test_child_exit_status_is_preserved(self):
         self.assertEqual(

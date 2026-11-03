@@ -1,0 +1,346 @@
+#!/usr/bin/env python3
+"""Validate and measure analytical queries and ingestion; preserve failed fixtures."""
+import os
+import sys
+from pathlib import Path
+
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    dev = Path(__file__).resolve().parent / "dev"
+    os.execv(str(dev), [str(dev), sys.executable, "-B", *sys.argv])
+from _common import *
+import argparse
+import collections
+import contextlib
+import json
+import math
+import platform
+import socket
+import socketserver
+import statistics
+import threading
+import time
+import uuid
+from datetime import datetime, timezone
+from urllib.parse import urlsplit, urlunsplit
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--rows", type=int, default=4096)
+parser.add_argument("--width", type=int, default=1024)
+parser.add_argument("--rounds", type=int, default=3)
+parser.add_argument("--iterations", type=int, default=25)
+parser.add_argument("--seed", type=int, default=9417)
+parser.add_argument("--delays", type=int, nargs="+", default=[0, 2])
+parser.add_argument(
+    "--max-seconds",
+    type=int,
+    default=1800,
+    help="wall-time budget per profile; failed fixtures are retained",
+)
+args = parser.parse_args()
+if not 256 <= args.rows <= 100000 or not 64 <= args.width <= 16384:
+    parser.error("rows must be 256..100000 and width 64..16384")
+if args.rows * args.width > 128 * 1024 * 1024:
+    parser.error("payload must fit within 128 MiB")
+if not 1 <= args.rounds <= 20 or not 5 <= args.iterations <= 1000:
+    parser.error("rounds must be 1..20 and iterations 5..1000")
+if not 0 <= args.seed <= 2**64 - 1 or any(not 0 <= d <= 100 for d in args.delays):
+    parser.error("seed must fit u64; delays must be 0..100 ms")
+if len(set(args.delays)) != len(args.delays):
+    parser.error("delay profiles must be distinct")
+if not 30 <= args.max_seconds <= 7200:
+    parser.error("max-seconds must be 30..7200")
+for name in ("DORIS_TEST_URL", "DORIS_HTTP_URL", "DORIS_BE_HTTP_URL"):
+    if not os.environ.get(name):
+        parser.error(f"{name} is required")
+parts = urlsplit(os.environ["DORIS_TEST_URL"])
+if parts.hostname not in ("127.0.0.1", "localhost"):
+    parser.error("the controlled TCP relay requires a loopback Doris endpoint")
+directory = artifacts / ("workloads-" + uuid.uuid4().hex)
+directory.mkdir()
+run(
+    [
+        [
+            "cargo",
+            "build",
+            "--locked",
+            "--offline",
+            "--release",
+            "--example",
+            "benchmark_workloads",
+            "--features",
+            "stream-load",
+        ]
+    ],
+    "workloads-build.log",
+)
+binary = Path(os.environ["CARGO_TARGET_DIR"]) / "release/examples/benchmark_workloads"
+
+
+class Relay(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+    def __init__(self, delay):
+        self.delay = delay / 1000
+        self.bytes = 0
+        self.chunks = 0
+        self.lock = threading.Lock()
+        super().__init__(("127.0.0.1", 0), Forward)
+
+
+class Forward(socketserver.BaseRequestHandler):
+    def handle(self):
+        upstream = socket.create_connection(
+            (parts.hostname, parts.port or 9030), timeout=10
+        )
+        for connection in (self.request, upstream):
+            connection.settimeout(120)
+            connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
+        def copy(source, destination):
+            try:
+                while block := source.recv(65536):
+                    if self.server.delay:
+                        time.sleep(self.server.delay)
+                    destination.sendall(block)
+                    with self.server.lock:
+                        self.server.bytes += len(block)
+                        self.server.chunks += 1
+            except (OSError, TimeoutError):
+                pass  # A failed transfer still fails the client/data oracle.
+            finally:
+                with contextlib.suppress(OSError):
+                    destination.shutdown(socket.SHUT_WR)
+
+        worker = threading.Thread(target=copy, args=(self.request, upstream))
+        worker.start()
+        copy(upstream, self.request)
+        worker.join()
+        upstream.close()
+
+
+def execute(profile, phase, query_url=None):
+    env = os.environ.copy()
+    env.update(
+        {
+            "DORIS_WORKLOAD_ROWS": str(args.rows),
+            "DORIS_WORKLOAD_WIDTH": str(args.width),
+            "DORIS_WORKLOAD_ROUNDS": str(args.rounds),
+            "DORIS_WORKLOAD_ITERATIONS": str(args.iterations),
+            "DORIS_WORKLOAD_SEED": str(args.seed),
+            "DORIS_WORKLOAD_PHASE": phase,
+            "DORIS_WORKLOAD_PROFILE": profile,
+        }
+    )
+    if query_url:
+        env["DORIS_BENCH_QUERY_URL"] = query_url
+    records = []
+    rss = []
+    current = {"stage": "setup"}
+    stop = threading.Event()
+    expired = threading.Event()
+    deadline = time.monotonic() + args.max_seconds
+    with (directory / f"{profile}.stderr.log").open("w") as stderr:
+        process = subprocess.Popen(
+            [str(binary)], env=env, text=True, stdout=subprocess.PIPE, stderr=stderr
+        )
+
+        def sample_rss():
+            while not stop.is_set():
+                if time.monotonic() >= deadline:
+                    expired.set()
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                    return
+                sample = subprocess.run(
+                    ["ps", "-p", str(process.pid), "-o", "rss="],
+                    text=True,
+                    capture_output=True,
+                )
+                if sample.returncode == 0 and sample.stdout.strip():
+                    rss.append(
+                        {
+                            "at_monotonic": time.monotonic(),
+                            "stage": current["stage"],
+                            "rss_kib": int(sample.stdout),
+                        }
+                    )
+                stop.wait(0.05)
+
+        sampler = threading.Thread(target=sample_rss)
+        sampler.start()
+        try:
+            with (directory / f"{profile}.jsonl").open("w") as log:
+                for line in process.stdout:
+                    log.write(line)
+                    log.flush()
+                    value = json.loads(line)
+                    records.append(value)
+                    if value["event"] == "begin":
+                        current["stage"] = f"{value['workload']}:{value['rows']}"
+                    elif value["event"] == "end":
+                        current["stage"] = "setup_or_cleanup"
+            code = process.wait()
+        finally:
+            if process.poll() is None:
+                # Stop only our child, preserve its server-side fixtures, and
+                # make no assumption that an admitted write was rolled back.
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+            stop.set()
+            sampler.join()
+            process.stdout.close()
+            (directory / f"{profile}.rss.json").write_text(
+                json.dumps(rss, indent=2) + "\n"
+            )
+    if code or expired.is_set():
+        raise SystemExit(
+            f"Workload failed ({code}, deadline_expired={expired.is_set()}); retain fixtures and evidence: {directory}"
+        )
+    if not rss or not any(
+        row["event"] in ("sample", "ingestion_sample") for row in records
+    ):
+        raise SystemExit("Workload or RSS evidence is incomplete")
+    actual = collections.Counter(
+        (row["workload"], row["rows"], row["round"], row.get("iteration"))
+        for row in records
+        if row["event"] in ("sample", "ingestion_sample")
+    )
+    if phase == "queries":
+        expected = collections.Counter(
+            (name, size, round_number, iteration)
+            for name in ("aggregate", "join", "wide", "complex", "slow_consumer")
+            for size in (
+                [args.rows]
+                if name in ("aggregate", "join")
+                else sorted({256, args.rows})
+            )
+            for round_number in range(args.rounds)
+            for iteration in range(args.iterations)
+        )
+    else:
+        expected = collections.Counter(
+            (name, args.rows, round_number, None)
+            for name in (
+                "insert_batch",
+                "load_json",
+                "load_bytes",
+                "load_file",
+                "group_sync",
+                "group_async",
+            )
+            for round_number in range(args.rounds)
+        )
+    if actual != expected:
+        raise SystemExit(
+            f"Incomplete or duplicate workload samples; evidence: {directory}"
+        )
+    return {"profile": profile, "records": records, "rss": rss}
+
+
+runs = []
+for delay in args.delays:
+    with Relay(delay) as relay:
+        thread = threading.Thread(target=relay.serve_forever)
+        thread.start()
+        userinfo, separator, _ = parts.netloc.rpartition("@")
+        authority = (
+            userinfo + separator if separator else ""
+        ) + f"{parts.hostname}:{relay.server_address[1]}"
+        query_url = urlunsplit((parts.scheme, authority, parts.path, parts.query, ""))
+        try:
+            result = execute(f"query_relay_{delay}ms", "queries", query_url)
+            result["relay"] = {
+                "delay_per_forwarded_chunk_ms": delay,
+                "chunk_limit_bytes": 65536,
+                "bytes": relay.bytes,
+                "chunks": relay.chunks,
+            }
+            runs.append(result)
+        finally:
+            relay.shutdown()
+            thread.join()
+runs.append(execute("ingestion", "ingestion"))
+
+
+def percentile(values, quantile):
+    ordered = sorted(values)
+    return ordered[
+        max(0, min(len(ordered) - 1, math.ceil(len(ordered) * quantile) - 1))
+    ]
+
+
+groups = collections.defaultdict(list)
+for run_result in runs:
+    for record in run_result["records"]:
+        if record["event"] in ("sample", "ingestion_sample"):
+            groups[(run_result["profile"], record["workload"], record["rows"])].append(
+                record
+            )
+summaries = []
+for (profile, workload, rows), samples in groups.items():
+    key = "visible_ms" if samples[0]["event"] == "ingestion_sample" else "elapsed_ms"
+    times = [sample[key] for sample in samples]
+    summary = {
+        "profile": profile,
+        "workload": workload,
+        "rows": rows,
+        "samples": len(samples),
+        "p50_ms": percentile(times, 0.5),
+        "p95_ms": percentile(times, 0.95),
+        "p99_ms": percentile(times, 0.99),
+    }
+    if key == "visible_ms":
+        summary.update(
+            {
+                "ack_p50_ms": statistics.median(
+                    sample["submit_ack_ms"] for sample in samples
+                ),
+                "rows_per_second_median": statistics.median(
+                    1000 * rows / sample["visible_ms"] for sample in samples
+                ),
+                "payload_mib_per_second_median": statistics.median(
+                    sample["payload_bytes"] / (1024**2) * 1000 / sample["visible_ms"]
+                    for sample in samples
+                ),
+            }
+        )
+    else:
+        summary["result_rows"] = samples[0]["result_rows"]
+        summary["result_rows_per_second_median"] = statistics.median(
+            1000 * sample["result_rows"] / sample["elapsed_ms"] for sample in samples
+        )
+        if samples[0]["result_payload_bytes"] is not None:
+            summary["result_payload_mib_per_second_median"] = statistics.median(
+                sample["result_payload_bytes"] / (1024**2) * 1000 / sample["elapsed_ms"]
+                for sample in samples
+            )
+    summaries.append(summary)
+summary = {
+    "measured_at_utc": datetime.now(timezone.utc).isoformat(),
+    "configuration": vars(args),
+    "rustc": subprocess.check_output(["rustc", "--version"], text=True).strip(),
+    "host": platform.platform(),
+    "quantile_method": "nearest rank; small sample tails are descriptive only",
+    "summary": summaries,
+    "runs": runs,
+    "limits": [
+        "One FE/BE fixture; warm filesystem/server caches",
+        "Relay delay applies per read chunk in both directions, not a fixed RTT",
+        "All returned values are verified; validation CPU is included",
+        "RSS is sampled at 50 ms intervals and is not an absolute peak",
+        "RSS includes expected-data storage and allocator history from baseline encoding; it does not isolate upload-buffer allocation",
+        "send_json/INSERT API timing includes encoding/binding; separate serde_json encoding is a baseline only",
+        "Visibility timing is a count observation; complete value/multiplicity validation follows it",
+    ],
+}
+(directory / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+print(json.dumps({"artifact": str(directory), "summary": summaries}, indent=2))

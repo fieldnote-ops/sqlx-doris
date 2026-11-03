@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Measure managed-identity creation, preview, retirement and empty drain checks."""
+import os
+import sys
+from pathlib import Path
+
+if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
+    dev = Path(__file__).resolve().parent / "dev"
+    os.execv(str(dev), [str(dev), sys.executable, "-B", *sys.argv])
+from _common import *
+import json
+import statistics
+import time
+from datetime import datetime, timezone
+from urllib.parse import urlsplit, urlunsplit
+
+url = os.environ.get("DORIS_TEST_URL")
+if not url:
+    raise SystemExit(
+        "DORIS_TEST_URL with identity-administration privileges is required"
+    )
+run(
+    [
+        [
+            "cargo",
+            "build",
+            "--release",
+            "--locked",
+            "--offline",
+            "-p",
+            "sqlx-doris",
+            "--features",
+            "cli-admin",
+            "--bin",
+            "cargo-sqlx-doris",
+        ]
+    ],
+    "benchmark-identities-build.log",
+)
+cli = Path(os.environ["CARGO_TARGET_DIR"]) / "release/cargo-sqlx-doris"
+root = (
+    Path(os.environ["SQLX_DORIS_BUILD_ROOT"])
+    / "native-identity-benchmark"
+    / str(time.time_ns())
+)
+root.mkdir(parents=True)
+parts = urlsplit(url)
+database = "sdk_ibench_" + str(time.time_ns())
+env = os.environ.copy()
+env["DATABASE_URL"] = urlunsplit(
+    (parts.scheme, parts.netloc, "/" + database, parts.query, "")
+)
+records = []
+
+
+def call(*args):
+    start = time.monotonic()
+    p = subprocess.run(
+        [str(cli), "--replication-num", "1", *args],
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+    if p.returncode:
+        raise SystemExit(p.stderr)
+    return (time.monotonic() - start) * 1000
+
+
+call("database", "create")
+completed = False
+try:
+    for round in range(5):
+        path = root / f"{round}.json"
+        create_ms = call("admin", "identity", "create", "--output", str(path))
+        name = json.loads(path.read_text())["name"]
+        preview_ms = call("admin", "identity", "retire", "--name", name)
+        retire_ms = call(
+            "admin", "identity", "retire", "--name", name, "--maintenance", "--force"
+        )
+        drain_ms = call("admin", "drain", "status", "--name", name)
+        records.append(
+            dict(
+                round=round,
+                create_ms=create_ms,
+                preview_ms=preview_ms,
+                retire_ms=retire_ms,
+                drain_ms=drain_ms,
+            )
+        )
+        path.unlink()
+    completed = True
+finally:
+    if completed:
+        call("database", "drop", "--force")
+    else:
+        print(
+            "Benchmark failed; database and credentials retained. Do not replay uncertain account DDL.",
+            file=sys.stderr,
+        )
+summary = dict(
+    measured_at_utc=datetime.now(timezone.utc).isoformat(),
+    records=records,
+    median_ms={
+        key: statistics.median(r[key] for r in records)
+        for key in ("create_ms", "preview_ms", "retire_ms", "drain_ms")
+    },
+)
+(artifacts / "benchmark-identities.json").write_text(
+    json.dumps(summary, indent=2) + "\n"
+)
+print(json.dumps(summary["median_ms"], indent=2))

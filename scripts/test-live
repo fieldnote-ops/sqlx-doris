@@ -1,101 +1,183 @@
 #!/usr/bin/env python3
-"""Run all live contracts and examples; missing prerequisites are errors."""
-from datetime import datetime
-import json
+"""Run real Doris contracts; missing prerequisites or skipped live tests fail."""
 import os
-from pathlib import Path
-import platform
-import re
-import subprocess
 import sys
-import time
+from pathlib import Path
 
-project = Path(__file__).resolve().parents[1]
 if os.environ.get("SQLX_DORIS_DEV_ACTIVE") != "1":
-    os.execv(
-        str(project / "scripts/dev"),
-        [
-            str(project / "scripts/dev"),
-            sys.executable,
-            "-B",
-            str(Path(__file__).resolve()),
-        ],
-    )
-os.chdir(project)
-for name in ("MYSQL_TEST_URL", "DORIS_TEST_URL", "DORIS_HTTP_URL", "DORIS_BE_HTTP_URL"):
-    if not os.environ.get(name):
-        raise SystemExit(f"{name} is required for live tests")
-root = Path(os.environ["SQLX_DORIS_BUILD_ROOT"])
-for folder, files, prepare in [
+    dev = Path(__file__).resolve().parent / "dev"
+    os.execv(str(dev), [str(dev), sys.executable, "-B", *sys.argv])
+from _common import *
+import re
+import json
+import time
+import argparse
+from collections import Counter
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument(
+    "--group",
+    choices=("full", "driver", "ingestion"),
+    default="full",
+    help="full is the release gate; smaller groups are scoped development checks",
+)
+args = parser.parse_args()
+full = args.group == "full"
+ingestion = args.group in ("full", "ingestion")
+required = ["DORIS_TEST_URL"]
+if ingestion:
+    required += ["DORIS_HTTP_URL", "DORIS_BE_HTTP_URL"]
+if full:
+    required += [
+        "DORIS_LOAD_FIXTURE_HOST",
+        "DORIS_KAFKA_BROKERS",
+        "DORIS_KAFKA_TOPIC",
+        "DOCKER_HOST",
+        "DORIS_KAFKA_CONTAINER",
+        "DORIS_KAFKA_FAULT_MANIFEST",
+        "DORIS_KAFKA_CONNECTION_FILE",
+        "DORIS_KAFKA_SASL_CONNECTION_FILE",
+    ]
+
+for key in required:
+    if not os.environ.get(key):
+        raise SystemExit(f"{key} is required")
+if full:
+    for key in ("DORIS_KAFKA_CONNECTION_FILE", "DORIS_KAFKA_SASL_CONNECTION_FILE"):
+        config = Path(os.environ[key])
+        if (
+            config.is_symlink()
+            or not config.is_file()
+            or not config.resolve().is_relative_to(
+                Path(os.environ["SQLX_DORIS_EXTERNAL_VOLUME"]).resolve()
+            )
+            or config.stat().st_mode & 0o077
+            or config.stat().st_size > 65536
+        ):
+            raise SystemExit(
+                f"{key} must be a private regular external connection file"
+            )
+    fault_path = Path(os.environ["DORIS_KAFKA_FAULT_MANIFEST"])
+    if (
+        fault_path.is_symlink()
+        or not fault_path.is_file()
+        or not fault_path.resolve().is_relative_to(
+            Path(os.environ["SQLX_DORIS_EXTERNAL_VOLUME"]).resolve()
+        )
+        or fault_path.stat().st_mode & 0o077
+    ):
+        raise SystemExit(
+            "DORIS_KAFKA_FAULT_MANIFEST must be a private regular external file"
+        )
+    faults = json.loads(fault_path.read_text())
+    if (
+        len(faults.get("nodes", [])) != 2
+        or not faults.get("owner")
+        or not faults.get("image")
+        or not faults.get("cluster_id")
+    ):
+        raise SystemExit(
+            "owned two-broker fault manifest is required; see docs/TESTING.md"
+        )
+fixture_root = Path(os.environ["SQLX_DORIS_BUILD_ROOT"]) / "fixtures"
+for folder, names in [
     (
         "tls",
-        (
+        [
             "ca.pem",
-            "wrong-ca.pem",
             "server-cert.pem",
             "server-key.pem",
             "client-cert.pem",
             "client-key.pem",
-        ),
-        "prepare-test-certificates",
+            "wrong-ca.pem",
+        ],
     ),
-    (
-        "stream-load",
-        ("manifest.json", "sample.parquet", "sample.orc"),
-        "prepare-load-fixtures",
-    ),
+    ("stream-load", ["manifest.json", "sample.parquet", "sample.orc"]),
 ]:
-    if any(not (root / "fixtures" / folder / name).is_file() for name in files):
-        raise SystemExit(
-            f"run scripts/{prepare} and configure the instances per docs/TESTING.md"
-        )
-run = (
-    Path(os.environ["SQLX_DORIS_ARTIFACTS_DIR"])
-    / "live"
-    / datetime.now().strftime("%Y%m%d-%H%M%S")
-)
-run.mkdir(parents=True)
-command = [
-    "cargo",
-    "test",
-    "--locked",
-    "--offline",
-    "--workspace",
-    "--tests",
-    "--no-fail-fast",
-    "--",
-    "--ignored",
-    "--nocapture",
-    "--test-threads=1",
-]
+    if not ingestion:
+        continue
+    for name in names:
+        if not (fixture_root / folder / name).is_file():
+            raise SystemExit(f"Missing fixture: {folder}/{name}; see docs/TESTING.md")
 started = time.monotonic()
-with (run / "tests.log").open("w") as output:
-    code = subprocess.run(command, stdout=output, stderr=subprocess.STDOUT).returncode
-log = (run / "tests.log").read_text()
+targets = []
+features = ["--all-features"]
+scope = ["--workspace"] if full else ["-p", "sqlx-doris"]
+if args.group == "driver":
+    targets = ["--test", "driver_live"]
+    features = ["--no-default-features"]
+elif args.group == "ingestion":
+    targets = ["--test", "stream_load_live", "--test", "stream_load_tls_live"]
+    features = ["--no-default-features", "--features", "stream-load"]
+run(
+    [
+        [
+            "cargo",
+            "test",
+            "--locked",
+            "--offline",
+            *scope,
+            *features,
+            *(["--tests"] if full else targets),
+            "--",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1",
+        ]
+    ],
+    f"live-{args.group}.log",
+)
 counts = re.findall(
-    r"test result: (?:ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored;", log
+    r"test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored;",
+    (artifacts / f"live-{args.group}.log").read_text(),
 )
-summary = dict(
-    passed=code == 0 and bool(counts),
-    command=command,
-    host=platform.platform(),
-    seconds=time.monotonic() - started,
-    tests_passed=sum(int(v[0]) for v in counts),
-    tests_failed=sum(int(v[1]) for v in counts),
-    tests_ignored=sum(int(v[2]) for v in counts),
-    examples_passed=False,
+passed = sum(int(c[0]) for c in counts)
+if not passed or any(int(c[1]) or int(c[2]) for c in counts):
+    raise SystemExit("Live tests were not fully executed")
+executed = []
+target = None
+for line in (artifacts / f"live-{args.group}.log").read_text().splitlines():
+    if match := re.search(r"Running tests/(\w+)\.rs", line):
+        target = match[1]
+    if match := re.match(r"test ([\w:]+) \.\.\.", line):
+        name = match[1]
+        if target == "migrate_live":
+            domain = (
+                "specialist_administration"
+                if name.startswith("identity::")
+                else "migration_and_locks"
+            )
+        elif target == "kafka_preflight_live":
+            domain = "kafka_preflight"
+        elif target in ("stream_load_live", "stream_load_tls_live"):
+            domain = "ingestion"
+        elif target in ("schema_live", "operations_live", "materialized_view_live"):
+            domain = "application_helpers"
+        else:
+            domain = "driver_and_types"
+        executed.append(dict(target=target, name=name, domain=domain))
+if len(executed) != passed:
+    raise SystemExit("Executed test names do not match the passing result count")
+(artifacts / f"live-{args.group}-summary.json").write_text(
+    json.dumps(
+        dict(
+            group=args.group,
+            release_gate=full,
+            passed=passed,
+            seconds=time.monotonic() - started,
+            domains=dict(Counter(test["domain"] for test in executed)),
+            executed_tests=executed,
+        ),
+        indent=2,
+    )
+    + "\n"
 )
-if summary["tests_failed"] or summary["tests_ignored"] or not summary["tests_passed"]:
-    summary["passed"] = False
-if summary["passed"]:
-    with (run / "examples.log").open("w") as output:
-        examples = subprocess.run(
-            [str(project / "scripts/test-examples")],
-            stdout=output,
-            stderr=subprocess.STDOUT,
-        ).returncode
-    summary["examples_passed"] = examples == 0
-    summary["passed"] = examples == 0
-(run / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-print(f"Live tests passed={summary['passed']}: {run}")
-raise SystemExit(0 if summary["passed"] else 1)
+if full:
+    run([[sys.executable, "-B", "scripts/test-examples"]], "live-examples.log")
+    run(
+        [
+            [sys.executable, "-B", "scripts/test-macros"],
+            [sys.executable, "-B", "scripts/test-cli"],
+        ],
+        "live-tools.log",
+    )

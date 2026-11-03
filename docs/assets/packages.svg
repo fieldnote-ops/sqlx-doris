@@ -1,0 +1,88 @@
+<svg data-source-sha256="032e891b07e72076e4aa3179164cd093cb8aeea335092157903642c06c45b049" data-locale="en" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 916" role="img" aria-labelledby="packages-title packages-desc" data-view="packages">
+            <title id="packages-title">One public entry. Explicit internal boundaries.</title>
+            <desc id="packages-desc">The highlighted packages support the selected task; the full graph shows potential dependencies, not a Cargo build trace</desc>
+            <defs><style>
+        svg { --paper:#0b111a; --panel:#111b28; --raised:#192638; --edge:#34465b;
+            --ink:#edf3fa; --muted:#a4b4c8; --faint:#668097; --cyan:#62dbef;
+            --amber:#edc17d; --violet:#b7a1f5; --green:#8ed7ba; background:var(--paper); }
+        @media (prefers-color-scheme:light) {
+            svg { --paper:#f5f8fc; --panel:#fff; --raised:#e6eef7; --edge:#abbdd1;
+                --ink:#15273c; --muted:#425c74; --faint:#60788c; --cyan:#086780;
+                --amber:#855109; --violet:#654397; --green:#236c51; }
+        }
+        svg[data-theme=light] { --paper:#f5f8fc; --panel:#fff; --raised:#e6eef7; --edge:#abbdd1;
+            --ink:#15273c; --muted:#425c74; --faint:#60788c; --cyan:#086780;
+            --amber:#855109; --violet:#654397; --green:#236c51; }
+        svg[data-theme=dark] { --paper:#0b111a; --panel:#111b28; --raised:#192638; --edge:#34465b;
+            --ink:#edf3fa; --muted:#a4b4c8; --faint:#668097; --cyan:#62dbef;
+            --amber:#edc17d; --violet:#b7a1f5; --green:#8ed7ba; }
+        text { font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; fill:var(--ink); }
+        .title { font-size:27px; font-weight:650; letter-spacing:-.7px; }
+        .node-title { font-size:17px; font-weight:600; letter-spacing:-.2px; }
+        .body { font-size:14px; fill:var(--muted); }
+        .small { font-size:12px; fill:var(--muted); }
+        .micro { font-size:11px; fill:var(--faint); letter-spacing:1.3px; }
+        .mono { font:13px "SFMono-Regular",Consolas,"Liberation Mono",monospace; fill:var(--muted); }
+        .accent { fill:var(--cyan); }
+        .number { font:15px "SFMono-Regular",Consolas,monospace; fill:var(--cyan); }
+        .panel { fill:var(--panel); stroke:var(--edge); stroke-width:1; }
+        .raised { fill:var(--raised); stroke:var(--edge); stroke-width:1; }
+        .frame { fill:var(--paper); stroke:var(--edge); stroke-width:1; }
+        .rule { stroke:var(--edge); stroke-width:1; fill:none; }
+        .flow { fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+        .execute { stroke:var(--cyan); }
+        .control { stroke:var(--amber); stroke-dasharray:7 5; }
+        .metadata { stroke:var(--violet); stroke-dasharray:1 5; }
+        .data { stroke:var(--green); stroke-width:3; }
+        .dependency { stroke:var(--muted); }
+        .optional { stroke-dasharray:5 5; }
+        .relation-label { paint-order:stroke; stroke:var(--paper); stroke-width:7px; stroke-linejoin:round; }
+        [data-task], [data-package] { cursor:pointer; outline:none; }
+        [data-task]:focus-visible .panel, [data-package]:focus-visible .panel { stroke:var(--cyan); stroke-width:3; }
+        .selected .panel { stroke:var(--cyan); stroke-width:1.8; }
+        .dim .flow { stroke-width:1.3; }
+        .hot { stroke:var(--cyan); stroke-width:2.4; }
+        .selected .node-title { fill:var(--cyan); }
+    </style><marker id="packages-execute" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="9" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M1 1L9 4L1 7" fill="none" class="flow execute" style="stroke-dasharray:none"/></marker><marker id="packages-control" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="9" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M1 1L9 4L1 7" fill="none" class="flow control" style="stroke-dasharray:none"/></marker><marker id="packages-metadata" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="9" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M1 1L9 4L1 7" fill="none" class="flow metadata" style="stroke-dasharray:none"/></marker><marker id="packages-data" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="9" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M1 1L9 4L1 7" fill="none" class="flow data" style="stroke-dasharray:none"/></marker><marker id="packages-dependency" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="9" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M1 1L9 4L1 7" fill="none" class="flow dependency" style="stroke-dasharray:none"/></marker></defs>
+            <rect x="1" y="1" width="1198" height="914" rx="16" class="frame"/>
+            <text x="32" y="35" class="micro" >SQLX–DORIS / PACKAGES</text>
+            <text x="32" y="75" class="title" >One public entry. Explicit internal boundaries.</text>
+            <text x="1168" y="35" class="micro" text-anchor="end">0.2.0 / UNRELEASED</text>
+            <text x="32" y="102" class="body" >The highlighted packages support the selected task; the full graph shows potential dependencies, not a Cargo build trace</text>
+            <rect x="24" y="124" width="1152" height="690" rx="12" class="panel"/><text x="44" y="154" class="micro" >FIVE DORIS PACKAGES</text><text x="1152" y="154" class="small" text-anchor="end">Arrow = depends on</text><g data-edge="facade:core" data-optional="false" class=""><path d="M530 234V278H410V717H450" class="flow dependency" marker-end="url(#packages-dependency)" style=""/><text x="409" y="642" class="small relation-label" text-anchor="middle">default</text></g><g data-edge="facade:macros" data-optional="true" class=""><path d="M450 190H207V338" class="flow dependency" marker-end="url(#packages-dependency)" style="stroke-dasharray:5 5;"/><text x="207" y="291" class="small relation-label" text-anchor="middle">macros</text></g><g data-edge="facade:ops" data-optional="true" class=""><path d="M640 234V492" class="flow dependency" marker-end="url(#packages-dependency)" style="stroke-dasharray:5 5;"/><text x="640" y="466" class="small relation-label" text-anchor="middle">operations / stream-load</text></g><g data-edge="facade:cli" data-optional="true" class=""><path d="M750 190H993V338" class="flow dependency" marker-end="url(#packages-dependency)" style="stroke-dasharray:5 5;"/><text x="971" y="291" class="small relation-label" text-anchor="middle">cli / cli-admin / cli-admin-kafka</text></g><g data-edge="macros:core" data-optional="true" class=""><path d="M207 430V748H450" class="flow dependency" marker-end="url(#packages-dependency)" style="stroke-dasharray:5 5;"/><text x="275" y="748" class="small relation-label" text-anchor="middle">query</text></g><g data-edge="ops:core" data-optional="false" class=""><path d="M600 584V690" class="flow dependency" marker-end="url(#packages-dependency)" style=""/><text x="641" y="644" class="small relation-label" text-anchor="middle">always</text></g><g data-edge="cli:core" data-optional="false" class=""><path d="M993 430V748H750" class="flow dependency" marker-end="url(#packages-dependency)" style=""/><text x="899" y="748" class="small relation-label" text-anchor="middle">always</text></g><g data-edge="cli:ops" data-optional="false" class=""><path d="M838 384H798V536H750" class="flow dependency" marker-end="url(#packages-dependency)" style=""/><text x="798" y="466" class="small relation-label" text-anchor="middle">cli-support</text></g><g class="node" data-package="facade" role="button" tabindex="0" aria-label="sqlx-doris">
+            <rect x="450" y="150" width="300" height="88" rx="9" class="raised"/>
+            <rect x="450" y="146" width="300" height="88" rx="9" class="panel"/>
+            <path d="M462 147H738" class="rule"/>
+            <text x="466" y="169" class="micro" >APPLICATION ENTRY</text>
+            <text x="466" y="189" class="node-title" >sqlx-doris</text>
+            <text x="466" y="222" class="mono" >Public Doris entry point</text>
+        </g><rect x="470" y="238" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="481" y="238" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="492" y="238" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="503" y="238" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="514" y="238" width="5" height="8" rx="1" fill="var(--faint)"/><g class="node" data-package="core" role="button" tabindex="0" aria-label="sqlx-doris-core">
+            <rect x="450" y="694" width="300" height="92" rx="9" class="raised"/>
+            <rect x="450" y="690" width="300" height="92" rx="9" class="panel"/>
+            <path d="M462 691H738" class="rule"/>
+            <text x="466" y="713" class="micro" >CORE</text>
+            <text x="466" y="733" class="node-title" >sqlx-doris-core</text>
+            <text x="466" y="755" class="mono" >Identity · wire · values ·</text><text x="466" y="770" class="mono" >migration traits</text>
+        </g><rect x="470" y="786" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="481" y="786" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="492" y="786" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="503" y="786" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="514" y="786" width="5" height="8" rx="1" fill="var(--faint)"/><g class="node" data-package="macros" role="button" tabindex="0" aria-label="sqlx-doris-macros">
+            <rect x="52" y="342" width="310" height="92" rx="9" class="raised"/>
+            <rect x="52" y="338" width="310" height="92" rx="9" class="panel"/>
+            <path d="M64 339H350" class="rule"/>
+            <text x="68" y="361" class="micro" >MACROS</text>
+            <text x="68" y="381" class="node-title" >sqlx-doris-macros</text>
+            <text x="68" y="418" class="mono" >Checked queries · offline metadata</text>
+        </g><rect x="72" y="434" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="83" y="434" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="94" y="434" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="105" y="434" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="116" y="434" width="5" height="8" rx="1" fill="var(--faint)"/><g class="node" data-package="ops" role="button" tabindex="0" aria-label="sqlx-doris-ops">
+            <rect x="450" y="496" width="300" height="92" rx="9" class="raised"/>
+            <rect x="450" y="492" width="300" height="92" rx="9" class="panel"/>
+            <path d="M462 493H738" class="rule"/>
+            <text x="466" y="515" class="micro" >OPS</text>
+            <text x="466" y="535" class="node-title" >sqlx-doris-ops</text>
+            <text x="466" y="557" class="mono" >Helpers · ingestion · guarded</text><text x="466" y="572" class="mono" >operations</text>
+        </g><rect x="470" y="588" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="481" y="588" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="492" y="588" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="503" y="588" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="514" y="588" width="5" height="8" rx="1" fill="var(--faint)"/><g class="node" data-package="cli" role="button" tabindex="0" aria-label="sqlx-doris-cli">
+            <rect x="838" y="342" width="310" height="92" rx="9" class="raised"/>
+            <rect x="838" y="338" width="310" height="92" rx="9" class="panel"/>
+            <path d="M850 339H1136" class="rule"/>
+            <text x="854" y="361" class="micro" >CLI</text>
+            <text x="854" y="381" class="node-title" >sqlx-doris-cli</text>
+            <text x="854" y="403" class="mono" >Cargo integration · commands ·</text><text x="854" y="418" class="mono" >rendering</text>
+        </g><rect x="858" y="434" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="869" y="434" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="880" y="434" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="891" y="434" width="5" height="8" rx="1" fill="var(--faint)"/><rect x="902" y="434" width="5" height="8" rx="1" fill="var(--faint)"/><text x="600" y="805" class="small" text-anchor="middle">Core owns the Doris identity. Internal packages never depend on the facade.</text><path d="M32 848H66" class="flow dependency" marker-end="url(#packages-dependency)" /><text x="78" y="852" class="small" >Required package dependency</text><path d="M416 848H450" class="flow dependency optional" marker-end="url(#packages-dependency)"/><text x="462" y="852" class="small" >Optional dependency (feature gated)</text><text x="32" y="886" class="small" >Potential package topology ≠ execution order. Shared upstream sqlx-core supplies generic traits; it is not a sixth Doris package.</text>
+        </svg>

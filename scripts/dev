@@ -3,6 +3,8 @@
 
 import json
 import os
+import plistlib
+import subprocess
 from pathlib import Path
 import sys
 
@@ -23,17 +25,35 @@ def main():
         print(f"External volume is not mounted separately: {volume}", file=sys.stderr)
         return 2
 
+    if sys.platform == "darwin":
+        probe = subprocess.run(
+            ["diskutil", "info", "-plist", str(volume)], capture_output=True
+        )
+        if probe.returncode or plistlib.loads(probe.stdout).get("Internal", True):
+            print(
+                f"Volume must be on a physical external disk: {volume}", file=sys.stderr
+            )
+            return 2
+
     configured_root = os.environ.get("SQLX_DORIS_BUILD_ROOT")
     root = Path(configured_root).resolve() if configured_root else volume / "sqlx-doris"
     paths = {
         "SQLX_DORIS_BUILD_ROOT": root,
         "CARGO_HOME": root / "cargo-home",
         "CARGO_TARGET_DIR": root / "target-clean",
+        "CARGO_BUILD_BUILD_DIR": root / "target-clean",
+        "SQLX_OFFLINE_DIR": Path(
+            os.environ.get("SQLX_OFFLINE_DIR", root / "offline" / "clean")
+        ),
         "TMPDIR": root / "tmp-clean",
         "TMP": root / "tmp-clean",
         "TEMP": root / "tmp-clean",
         "XDG_CACHE_HOME": root / "cache",
         "SCCACHE_DIR": root / "cache" / "sccache",
+        "PIP_CACHE_DIR": root / "cache" / "pip",
+        "UV_CACHE_DIR": root / "cache" / "uv",
+        "LIMA_HOME": root / "runtime" / "lima-home",
+        "DOCKER_CONFIG": root / "runtime" / "docker-config",
         "BLACK_CACHE_DIR": root / "cache" / "black",
         "PYTHONPYCACHEPREFIX": root / "cache" / "python",
         "SQLX_DORIS_ARTIFACTS_DIR": root / "artifacts" / "clean",
