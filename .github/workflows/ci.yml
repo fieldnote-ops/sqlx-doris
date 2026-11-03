@@ -15,7 +15,6 @@ jobs:
     timeout-minutes: 10
     env:
       SQLX_DORIS_DEV_ACTIVE: "1"
-      SQLX_DORIS_ARTIFACTS_DIR: ${{ runner.temp }}/artifacts
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -24,8 +23,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: Bilingual guides, links and anchors
-        run: python -B scripts/check-docs
+        # The runner context is unavailable in job-level env; expand it here.
+        run: SQLX_DORIS_ARTIFACTS_DIR="$RUNNER_TEMP/artifacts" python -B scripts/check-docs
       - name: Install the formatting pins
         run: python -m pip install --disable-pip-version-check black==25.9.0
       - name: Rust and Python formatting
-        run: python -B scripts/format --check
+        run: SQLX_DORIS_ARTIFACTS_DIR="$RUNNER_TEMP/artifacts" python -B scripts/format --check
